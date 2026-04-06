@@ -1,0 +1,31 @@
+{
+  "name": "assist",
+  "version": "1.0.0",
+  "description": "",
+  "main": "index.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/utsabshrestha/assist.git"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "type": "module",
+  "bugs": {
+    "url": "https://github.com/utsabshrestha/assist/issues"
+  },
+  "homepage": "https://github.com/utsabshrestha/assist#readme",
+  "dependencies": {
+    "minimatch": "^10.2.5",
+    "node-llama-cpp": "^3.18.1"
+  },
+  "devDependencies": {
+    "@types/node": "^25.5.2",
+    "ts-node": "^10.9.2",
+    "tsx": "^4.21.0",
+    "typescript": "^6.0.2"
+  }
+}
