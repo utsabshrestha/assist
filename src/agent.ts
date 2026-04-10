@@ -6,9 +6,9 @@ import {tools } from '../tools/fileOrgTool.js'
 import { LLMService } from './LLMService.js';
 import { fileOrgMasterAgentSystemPrompt } from './prompt/fileAgent.js';
 
-class Agent {    
+class FileAgent {    
     private dangerousActions = ["create_folder", "move_file"];
-
+    readonly path : string = "/Users/utsabshrestha/code/download";
     public async chatLoop() {
         const rl = readline.createInterface({
             input: process.stdin,
@@ -17,7 +17,8 @@ class Agent {
 
         console.log("\n\x1b[93m[System]\x1b[0m Loading node-llama-cpp (Apple Metal GPU enabled automatically)...");
         
-        const llmSession = (await (await LLMService.getInstance()).createSession(fileOrgMasterAgentSystemPrompt));
+        const llm = await LLMService.getInstance();
+        const llmSession = await llm.createSession(fileOrgMasterAgentSystemPrompt);
 
         console.log("\n\x1b[92m=== File Organization Agent ===\x1b[0m");
         console.log("Agent is ready. Describe how you want to manage your files.");
@@ -48,9 +49,10 @@ class Agent {
 
             }
         }
+        llm.endSession(llmSession);
         rl.close();
     }
 }
 
-const agent = new Agent();
-agent.chatLoop().catch(console.error);
+export const fileAgent = new FileAgent();
+fileAgent.chatLoop().catch(console.error);

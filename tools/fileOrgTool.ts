@@ -3,170 +3,12 @@ import * as path from 'path';
 import { minimatch } from 'minimatch';
 import { defineChatSessionFunction, getLlama, type GbnfJsonStringSchema } from 'node-llama-cpp';
 import { LLMService } from '../src/LLMService.js';
-import { fileAnalyzerWorkerAgentPrompt } from '../src/prompt/fileAgent.js';
+import { fileAnalyzerWorkerAgentPrompt, fileMoverWorkerAgentSystemPrompt, fileMoverWorkerAgentUserPrompt } from '../src/prompt/fileAgent.js';
+import { fileAgent } from '../src/agent.js';
+import { fileUtil } from '../src/utils/fileUtility.js';
+import { workerAgent } from './workerAgent.js';
 
-
-
-export const IGNORE_PATTERNS = [
-  "**/node_modules/**",
-  "**/__pycache__/**",
-  "**/.git/**",
-  "**/dist/**",
-  "**/build/**",
-  "**/target/**",
-  "**/vendor/**",
-  "**/bin/**",
-  "**/obj/**",
-  "**/.idea/**",
-  "**/.vscode/**",
-  "**/.zig-cache/**",
-  "**/zig-out/**",
-  "**/.coverage",
-  "**/coverage/**",
-  "**/tmp/**",
-  "**/temp/**",
-  "**/.cache/**",
-  "**/cache/**",
-  "**/logs/**",
-  "**/.venv/**",
-  "**/venv/**",
-  "**/env/**",
-  "**/.DS_Store" // Recommended for Mac users
-];
-
-const MAX_DEPTH = 5; // Prevent "terrible" deep nesting
-const MAX_FILES = 200; // Safety cap for the LLM
-
-async function getFilesListInAFolder(dir: string): Promise<string[]> {
-    let allFiles: string[] = [];
-
-    try {
-        const entries = await fs.readdir(dir, { withFileTypes: true });
-        
-        const sortedFiles = entries
-        // 1. Filter out directories, keeping only files
-        .filter(entry => entry.isFile())
-        // 2. Sort the files alphabetically by name
-        .sort((a, b) => a.name.localeCompare(b.name));
-
-        for (const entry of sortedFiles) {
-            const fullPath = path.join(dir, entry.name);
-
-            // Get file stats for metadata
-            try {
-                const stats = await fs.stat(fullPath);
-                const prefix = entry.isDirectory() ? "[DIR]" : "[FILE]";
-                
-                let fileInfo = `${prefix} ${fullPath}`;
-                
-                // Add file size
-                const sizeInKB = (stats.size / 1024).toFixed(2);
-                fileInfo += ` | Size: ${sizeInKB} KB`;
-                
-                // Add file type (extension)
-                const ext = path.extname(fullPath) || "no extension";
-                fileInfo += ` | Type: ${ext}`;
-                
-                // Add creation date
-                const createdDate = new Date(stats.birthtime).toLocaleString();
-                fileInfo += ` | Created: ${createdDate}`;
-
-                // Add modified date
-                const modifiedDate = new Date(stats.mtime).toLocaleString();
-                fileInfo += ` | Modified: ${modifiedDate}`;
-
-                allFiles.push(fileInfo);
-            } catch (err) {
-                // Fallback if stat fails
-                const prefix = entry.isDirectory() ? "[DIR]" : "[FILE]";
-                allFiles.push(`${prefix} ${fullPath}`);
-            }
-        }
-    } catch (err) {
-        // Handle permission denied or missing folders silently
-        console.error(`Could not read ${dir}:`, err);
-    }
-    return allFiles;
-}
-
-async function getFilesRecursive(
-    dir: string,
-    currentDepth = 0,
-    allFiles: string[] = [],
-    LookRecursivelyInFolder: boolean
-): Promise<string[]> {
-    // 1. Exit if we hit safety limits
-    if (currentDepth > MAX_DEPTH || allFiles.length >= MAX_FILES) {
-        return allFiles;
-    }
-
-    try {
-        const entries = await fs.readdir(dir, { withFileTypes: true });
-        // Sort: Files first, then Directories. Alphabetical within each group.
-        entries.sort((a, b) => {
-        // If one is a file and the other is a directory, prioritize the file
-        if (a.isFile() && b.isDirectory()) return -1;
-        if (a.isDirectory() && b.isFile()) return 1;
-
-        // Otherwise, sort alphabetically by name
-        return a.name.localeCompare(b.name);
-        });
-        for (const entry of entries) {
-            const fullPath = path.join(dir, entry.name);
-
-            // 2. Ignore Logic: Check if the path matches any patterns
-            const isIgnored = IGNORE_PATTERNS.some(pattern =>
-                minimatch(fullPath, pattern, { dot: true })
-            );
-
-            if (isIgnored) continue;
-
-            // Get file stats for metadata
-            try {
-                const stats = await fs.stat(fullPath);
-                const prefix = entry.isDirectory() ? "[DIR]" : "[FILE]";
-                
-                let fileInfo = `${prefix} ${fullPath}`;
-                
-                if (!entry.isDirectory()) {
-                    // Add file size
-                    const sizeInKB = (stats.size / 1024).toFixed(2);
-                    fileInfo += ` | Size: ${sizeInKB} KB`;
-                    
-                    // Add file type (extension)
-                    const ext = path.extname(fullPath) || "no extension";
-                    fileInfo += ` | Type: ${ext}`;
-                    
-                    // Add creation date
-                    const createdDate = new Date(stats.birthtime).toLocaleString();
-                    fileInfo += ` | Created: ${createdDate}`;
-                } else {
-                    // For directories, just show the modified date
-                    const modifiedDate = new Date(stats.mtime).toLocaleString();
-                    fileInfo += ` | Modified: ${modifiedDate}`;
-                }
-                
-                allFiles.push(fileInfo);
-            } catch (err) {
-                // Fallback if stat fails
-                const prefix = entry.isDirectory() ? "[DIR]" : "[FILE]";
-                allFiles.push(`${prefix} ${fullPath}`);
-            }
-
-            if (entry.isDirectory() && LookRecursivelyInFolder) {
-                await getFilesRecursive(fullPath, currentDepth + 1, allFiles, LookRecursivelyInFolder);
-            } 
-            if (allFiles.length >= MAX_FILES) break;
-        }
-    } catch (err) {
-        // Handle permission denied or missing folders silently
-        console.error(`Could not read ${dir}:`, err);
-    }
-
-    return allFiles;
-}
-
-
+const maxFileToRead = 250;
 
 const FLAG_DESCRIPTIONS: Record<string, string> = {
   "dupes":  "duplicate filenames detected",
@@ -202,12 +44,13 @@ function buildMasterSummary(workerJson: any): string {
 
 export const tools = {
     analyzeFolder: defineChatSessionFunction({
-        description: "This tool will provide the summary of the types of files in the current directory.",
+        description: "This is your worker agent which will investigates all the files in the provided location. You have to call this function only once, because if there are lot of files it will take time to get respond.",
         params: {
             type: "object",
             properties: {
                 path: {
-                    type: "string"
+                    type: "string",
+                    description: "Path of the folder where you want to investigate."
                 }
             }
         },
@@ -215,11 +58,9 @@ export const tools = {
             const targetPath = params.path.toLowerCase();
             console.log(`\x1b[95m[Worker Agent Action]\x1b[0m Reading files in directory: ${targetPath}`);
             try {
-                let output = await getFilesListInAFolder(params.path);
+                let output = await fileUtil.getFilesListInAFolder(params.path);
                 if (output.length > 0){
-                    const fileInformation = `Total files discovered in the folder : ${output.length} \n` + output.join("\n");
                     const llm = await LLMService.getInstance();
-                    const llmSession = (await llm.createSession(fileAnalyzerWorkerAgentPrompt));
                     const grammarForFileAnalyzer = await llm.llama.createGrammarForJsonSchema({
                     type: "object",
                     properties: {
@@ -243,23 +84,36 @@ export const tools = {
                     },
                     required: ["status", "error", "path", "totalFiles", "totalMB", "fileGroups", "flags"]
                     });
-                    
-                    //Instruct (or non-thinking) mode for general tasks: temperature=0.7, top_p=0.8, top_k=20, min_p=0.0, presence_penalty=1.5, repetition_penalty=1.0
-                    const reply = await llmSession.prompt(fileInformation, {
-                        temperature: 0.7,
-                        topP:0.8,
-                        topK: 20,
-                        minP: 0.0,
-                        grammar: grammarForFileAnalyzer
-                    });
+                    let fileInformation : string = `FOLDER Path : ${targetPath} \n Total files discovered in the folder : ${output.length} \n`;
+                    if (output.length <= maxFileToRead){
+                        // output = output.slice(0, 50);
+                        fileInformation += output.join("\n");
+                        let response = await workerAgent.getWorkerAgent<any>(fileAnalyzerWorkerAgentPrompt, fileInformation, grammarForFileAnalyzer, "file_Analyzer");
+                        return buildMasterSummary(response);
+                    }else{
 
-                    const parsedResponse = grammarForFileAnalyzer.parse(reply);
-                    const masterSummary = buildMasterSummary(parsedResponse);
-                    console.log(llm.checkGlobalContextStatus());
-                    console.log(llm.checkContextUsage(llmSession));
-                    llm.endSession(llmSession);
-                    console.log(llm.checkGlobalContextStatus());
-                    return masterSummary;
+                        const chunkFileArray = fileUtil.ChunkArray(output, maxFileToRead);
+                        
+                        // const response = await Promise.all(
+                        //     chunkFileArray.map((chunks,ind) => workerAgent.getWorkerAgent<any>(fileAnalyzerWorkerAgentPrompt, chunks.join("\n"), grammarForFileAnalyzer, `file_Analyzer_${ind}`))
+                        // );
+
+                        // const overallResp = response.map(resp => buildMasterSummary(resp)).join("\n\n");
+                        // return overallResp;
+
+                        let overallRespArray: string[] = [];
+                        for (let ind = 0; ind < chunkFileArray.length; ind++) {
+                            const chunks  = chunkFileArray[ind];
+                            if (chunks != undefined &&  chunks.length > 0){
+                                fileInformation += `You are given only ${chunks.length} files to analyze. \n` + chunks.join("\n");
+                                const resp = await workerAgent.getWorkerAgent<any>(fileAnalyzerWorkerAgentPrompt, fileInformation, grammarForFileAnalyzer, `file_Analyzer_${ind}`);
+                                let response = `Worker Agent ${ind} Analysis of ${chunks.length} files. \n` + buildMasterSummary(resp);
+                                overallRespArray.push(response);
+                            }
+                        }
+                        let overralRespond = `We had total ${output.length} files in our directory : ${targetPath}. So our Agent decided to run muliple Worker Agent to analyze these files. Below is the analysis of each chunk of size ${maxFileToRead} by ${chunkFileArray.length} Worker Agent. \n\n`;
+                        return overralRespond + overallRespArray.join("\n\n");
+                    }
                 }
                 return `There are no files in the given directory "${targetPath}"`;
             } catch (e: any) {
@@ -268,66 +122,103 @@ export const tools = {
         }
     }),
     createFolder: defineChatSessionFunction({
-        description: "This tool allows you to create folders for the given list of paths. Important : Before calling this function you have to ask permission with the user then only you can operate this.",
+        description: "This tool allows you to create folders for the given list of absolute paths.",
         params:{
             type: "array",
             items: {
                 type: "string",
-                description: "The full path of the folder you want to be created."
+                description: "The absolute path of the folder you want to create."
             },
             description: "A List of folder paths to be created.",
         },
-        async handler(params): Promise<string[]> {
+        async handler(params): Promise<string> {
             const folderList  = params;
             let response : string[] = [];
-            for(const folderName in folderList){
+            for(const folderName of folderList){
                 const targetPath = folderName.toLowerCase();
                 try {
                     await fs.mkdir(targetPath, { recursive: true });
-                    response.push(`Status : Success | Folder is created for path '${targetPath}'`)
+                    response.push(`Status : Success | Folder Created '${targetPath}'`)
                 } catch (e: any) {
-                    response.push(`Status : Failed | Folder could not be created for path '${targetPath}'`)
+                    response.push(`Status : Failed | Folder Not Created '${targetPath}'`)
                 }
             }
-            return response;   
+            return response.join("\n");
         }
 
     }),
     executeMovePlan: defineChatSessionFunction({
-        description: "This tool allows you to move multiple files from source to destination at once by passing the list of object with source and destination. Important : Before calling this function you have to ask permission with the user then only you can operate this.",
+        description: "This is a worker agent which will move the files to the newly created folders as per your instruction.",
         params:{
-            type: "array",
-            description: "The function accepts a list of object with properties source and destination for the files to be move from source to destination.",
-            items: {
-                type: "object",
-                properties: {
-                    source: {
-                        type: "string",
-                        description: "The source properties should have the current location of the file."
-                    },
-                    destination: {
-                        type: "string",
-                        description: "The destination properties should have the new destination where the file is meant to be moved."
-                    }
-                }
-            },
-            required: ["source", "destination"]
-        },
-        async handler (params): Promise<string[]> {
-            const moveOperationList = params as any[];
-            let response : string[] = []
-            for (const fileInfo of moveOperationList) {
-                try {
-                    const destDir = path.dirname(fileInfo.destination);
-                    await fs.mkdir(destDir, { recursive: true });
-                    
-                    await fs.rename(fileInfo.source, fileInfo.destination);
-                    response.push(`Status : Success: Moved '${fileInfo.source}' to '${fileInfo.destination}'.`);
-                } catch (e: any) {
-                    response.push(`Status : Failed: Could not move '${fileInfo.source}' to '${fileInfo.destination}'.`);
+            type: "object",
+            properties: {
+                instruction: {
+                    type: "string",
+                    description: "Please provide the clear instruction to the worker agent, how the files should be analyzed and categorized based on the planning and confirmation you have with the USER.",
+                },
+                folders:{
+                    type: "string",
+                    description: "Please provide the absolute path of newly created folder concatenated with the '|'."
                 }
             }
-            return response;
+        },
+        async handler (params): Promise<string> {
+            const actualPath = fileAgent.path;
+            let folders = params.folders.split("|");
+            fileUtil.ValidatePaths(actualPath, folders);
+            let files = await fileUtil.getFilesListInAFolder(actualPath);
+            if (files.length > 0){
+                let folderList: string = folders.map(x => `- ${x}`).join('\n');
+
+                const fileInformation = `Total files discovered in the folder : ${files.length} \n` + files.join("\n");                
+                const llm = await LLMService.getInstance();
+                console.log(llm.getGlobalContextUsage(llm.context));
+
+                const llmSession = await llm.createSession(fileMoverWorkerAgentSystemPrompt);
+
+                const grammarFileMove = await llm.llama.createGrammarForJsonSchema({
+                    type: "array",
+                    items: {
+                        type: "object",
+                        properties: {
+                            source: { type: "string" },
+                            destination: { type: "string" },
+                        },
+                        required: ["source", "destination"]
+                    }
+                });
+                
+                const instructionPrompt = fileMoverWorkerAgentUserPrompt(params.instruction, folderList, fileInformation);
+                const reply = await llmSession.prompt(instructionPrompt, {
+                            temperature: 0.7,
+                            topP:0.8,
+                            topK: 20,
+                            minP: 0.0,
+                            grammar: grammarFileMove
+                        });
+    
+                const parsedResponse = grammarFileMove.parse(reply);
+                console.log(llm.getGlobalContextUsage(llm.context));
+                console.log(llm.getSessionContextUsage(llmSession));
+                llm.endSession(llmSession);
+                console.log(llm.getGlobalContextUsage(llm.context));
+
+                const moveOperationList = parsedResponse;
+                let response : string[] = []
+                for (const fileInfo of moveOperationList) {
+                    try {
+                        const destDir = path.dirname(fileInfo.destination);
+                        await fs.mkdir(destDir, { recursive: true });
+                        
+                        await fs.rename(fileInfo.source, fileInfo.destination);
+                        response.push(`Status : Success: Moved '${fileInfo.source}' to '${fileInfo.destination}'.`);
+                    } catch (e: any) {
+                        response.push(`Status : Failed: Could not move '${fileInfo.source}' to '${fileInfo.destination}'.`);
+                    }
+                }
+            }
+
+            return '';
         }
     })
 };
