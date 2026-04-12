@@ -7,6 +7,7 @@ import { fileAnalyzerWorkerAgentPrompt, fileMoverWorkerAgentSystemPrompt, fileMo
 import { fileAgent } from '../src/agent.js';
 import { fileUtil } from '../src/utils/fileUtility.js';
 import { workerAgent } from './workerAgent.js';
+import { fileAgentRecord, fileAgentState } from '../src/state/fileAgentState.js';
 
 const maxFileToRead = 250;
 
@@ -51,6 +52,10 @@ export const tools = {
                 path: {
                     type: "string",
                     description: "Path of the folder where you want to investigate."
+                },
+                ProcessId: {
+                    type: "string",
+                    description: "The unique id to maintain the state of the agent."
                 }
             }
         },
@@ -58,6 +63,10 @@ export const tools = {
             const targetPath = params.path.toLowerCase();
             console.log(`\x1b[95m[Worker Agent Action]\x1b[0m Reading files in directory: ${targetPath}`);
             try {
+                
+                fileAgentRecord[params.ProcessId] = new fileAgentState();
+                let state = fileAgentRecord[params.ProcessId];
+                
                 let output = await fileUtil.getFilesListInAFolder(params.path);
                 if (output.length > 0){
                     const llm = await LLMService.getInstance();

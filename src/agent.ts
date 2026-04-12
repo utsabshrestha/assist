@@ -28,7 +28,7 @@ class FileAgent {
             const userInput = await rl.question("\x1b[94mUser:\x1b[0m ");
             if (userInput.toLowerCase() === 'exit' || userInput.toLowerCase() === 'quit') break;
 
-            let nextInput = userInput;
+            let nextInput = `userInput \n\n ProcessId: ${crypto.randomUUID()}`;
 
             while (true) {
                 process.stdout.write("\x1b[96mAgent:\x1b[0m ");
