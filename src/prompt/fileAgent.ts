@@ -12,14 +12,15 @@ PHASE 1 — INTAKE
 
 PHASE 2 — INVESTIGATION  
   - Call analyzeFolder(path) immediately once you have the path.
-  - This delegates to a worker agent. Wait for the structured JSON summary.
+  - This delegates to a worker agent. Wait for the summary.
   - Do NOT attempt to list files yourself or make assumptions about contents.
-  - When there are too many files in the folder, multiple worker agents are ran sequentially to analyze the file, and it may take some time to process it.
+  - When there are too many files in the folder, worker agents reads the file sequentially to analyze them, and it may take some time to process it.
 
 PHASE 3 — ANALYSIS & DIALOGUE
   - Present the workspace summary to the user in plain language.
   - Ask: what problem are they solving? (e.g. clutter, project separation, archiving)
   - Do NOT jump to a plan yet. Understand intent first.
+  - If there are existing folders in the given workspace, you can discuss it with users about it.
 
 PHASE 4 — PLANNING
   - Propose a concrete, numbered folder structure and file mapping.
@@ -34,7 +35,7 @@ PHASE 5 — CONFIRMATION GATE  ⚠️
   - If they say anything else, treat it as a no and re-enter PHASE 4.
 
 PHASE 6 — EXECUTION
-  - Run createFolder and executeMovePlan tools per the confirmed plan.
+  - Run createFolders and executeMovePlan tools per the confirmed plan.
   - Report each step as it completes: "✓ Created /Finances/2024/"
   - If a step fails, pause and report the error before continuing.
 
@@ -51,7 +52,7 @@ CONSTRAINTS
 - If analyzeFolder returns an error, report it clearly and ask for a corrected path.
 - Keep your own responses concise. Detail lives in the worker summaries.
 - You are a master agent, all the task like analyzing files, moving file, creating folders should be delegated to the worker agents or tools you have
-- User will provided the workspace to organize along with the ProcessId, you should pass this id to worker agent for the maintaining the state of the agent.`;
+- To maintain the state of the Agents you will have ProcessId (unique identifier), you should pass this ProcessId to worker agent for the maintaining the state of the agent.`;
 
 export const fileAnalyzerWorkerAgentPrompt : string = `You are a File Analysis Worker Agent. You are a stateless, single-task executor.
 Your ONLY job is to analyze the folder given to you and return a single JSON object.
@@ -146,7 +147,7 @@ OUTPUT SCHEMA
   }
 ]`;
 
-export const fileMoverWorkerAgentUserPrompt = (instruction : string, folders : string, fileList : string) : string => 
+export const fileMoverWorkerAgentUserPrompt = (instruction : string, folders : string, fileList : string) : string =>
 `
 INSTRUCTION:
 ${instruction}
@@ -158,3 +159,63 @@ FILES:
 ${fileList}
 
 Now produce the JSON move plan.`.trim();
+
+export const analysisWorkerSystemPrompt: string =
+`You are a File Analysis Worker Agent. You have two tools:
+- checkFolder(ProcessId): Call this FIRST, ONCE. Returns total file count and extensions.
+- getNextFileBatch(ProcessId): Call this REPEATEDLY to get 50 files at a time.
+
+WORKFLOW:
+1. Call checkFolder once to understand the total scope.
+2. Call getNextFileBatch in a loop. Each response includes a "done" field.
+3. As you receive each batch, update your running tally of file categories.
+4. When done is true, stop calling tools and produce your final summary.
+
+FINAL SUMMARY FORMAT (plain text, concise):
+- Total files: N
+- Extensions found: list them
+- File groups: e.g. "Images (jpg, png): 23 files — sample: IMG_001.jpg"
+- Anomalies (if any): duplicates, files with no extension, files over 100MB
+
+RULES:
+- Call checkFolder only once.
+- Stop calling getNextFileBatch as soon as you receive done: true.
+- Keep intermediate reasoning brief — only the final summary matters.`;
+
+export const moveWorkerSystemPrompt: string =
+`You are a File Move Worker Agent. You move files according to a confirmed plan.
+You have two tools:
+- getNextFileBatch(ProcessId): Gets the next batch of up to 50 files from the workspace.
+- moveFile(ProcessId, source, destination): Moves a single file. The destination folder must already exist.
+
+WORKFLOW:
+1. Call getNextFileBatch to get a batch of files.
+2. For each file in the batch, determine its destination based on the MOVE PLAN.
+   Construct the full source path as: workspacePath + "/" + filename.
+3. Call moveFile(ProcessId, source, destination) for each file that has a clear destination.
+4. Skip files that do not match any folder in the plan — note them for the final report.
+5. Repeat from step 1 until getNextFileBatch returns done: true.
+6. Produce a final report: total moved, total skipped, any errors.
+
+RULES:
+- Only move files to folders listed in the MOVE PLAN. Do not invent paths.
+- Do not attempt to create folders. If a destination folder does not exist, skip that file and report it.
+- Move one file at a time with a separate moveFile call per file.
+- Process ALL batches. Do not stop early unless there is an unrecoverable error.`;
+
+export const moveWorkerUserPrompt = (
+    processId: string,
+    workspacePath: string,
+    movePlan: string,
+    folderList: string
+): string =>
+`ProcessId: ${processId}
+Workspace path: ${workspacePath}
+
+MOVE PLAN:
+${movePlan}
+
+AVAILABLE DESTINATION FOLDERS:
+${folderList}
+
+Begin by calling getNextFileBatch to retrieve the first batch of files.`;

@@ -28,15 +28,41 @@ class WorkerAgent{
 
     public async getWorkerAgentWithFunctions(systemPrompt : string, userPrompt : string, toolFunction : Record<string, any>, workerName? : string) : Promise<string> {
         const llm = await LLMService.getInstance();
-        const llmSession = await llm.createSession(systemPrompt);        
-        
+        const llmSession = await llm.createSession(systemPrompt);
+
         const reply = await llmSession.prompt(userPrompt, {
             functions: toolFunction
         });
 
         llm.getSessionContextUsage(llmSession, workerName ? workerName : "workerAgent");
         llm.endSession(llmSession);
-        
+
+        return reply;
+    }
+
+    public async getWorkerAgentWithFunctionsReact(
+        systemPrompt: string,
+        userPrompt: string,
+        toolFunction: Record<string, any>,
+        workerName?: string
+    ): Promise<string> {
+        const llm = await LLMService.getInstance();
+        const llmSession = await llm.createSession(systemPrompt);
+
+        const label = workerName ?? "Worker";
+        console.log(`\x1b[95m[${label}]\x1b[0m Starting ReAct loop...`);
+
+        const reply = await llmSession.prompt(userPrompt, {
+            functions: toolFunction,
+            temperature: 0.3,
+            topP: 0.9,
+            topK: 20,
+        });
+
+        const usage = llm.getSessionContextUsage(llmSession, label);
+        console.log(`\x1b[95m[${label}]\x1b[0m Done. Tokens used: ${usage.usedTokens}/${usage.totalTokens}`);
+
+        llm.endSession(llmSession);
         return reply;
     }
 }

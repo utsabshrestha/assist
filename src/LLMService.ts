@@ -9,7 +9,7 @@ export class LLMService {
     public llama!: Llama;
 
     private constructor() { }
-    private sessions : LlamaChatSession[] = [];
+    public sessions : LlamaChatSession[] = [];
 
     public static async getInstance(): Promise<LLMService> {
         if (!LLMService.instance) {
@@ -35,6 +35,9 @@ export class LLMService {
         console.log("Context Size:", this.context.contextSize);
     }
     public async createSession(systemPrompt: string): Promise<LlamaChatSession> {
+        if(!LLMService.instance){
+            throw new Error("LLM Sercie is not instantiated !");
+        }
         const sequence = this.context.getSequence();
         const newSession = new LlamaChatSession({
             contextSequence: sequence,

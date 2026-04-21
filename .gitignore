@@ -3,3 +3,4 @@ node_modules
 #llm
 *.gguf
 .DS_Store
+[Start thinking].md

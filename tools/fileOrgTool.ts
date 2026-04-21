@@ -1,233 +1,203 @@
 import * as fs from 'fs/promises';
 import * as path from 'path';
-import { minimatch } from 'minimatch';
-import { defineChatSessionFunction, getLlama, type GbnfJsonStringSchema } from 'node-llama-cpp';
-import { LLMService } from '../src/LLMService.js';
-import { fileAnalyzerWorkerAgentPrompt, fileMoverWorkerAgentSystemPrompt, fileMoverWorkerAgentUserPrompt } from '../src/prompt/fileAgent.js';
-import { fileAgent } from '../src/agent.js';
+import { defineChatSessionFunction } from 'node-llama-cpp';
 import { fileUtil } from '../src/utils/fileUtility.js';
 import { workerAgent } from './workerAgent.js';
 import { fileAgentRecord, fileAgentState } from '../src/state/fileAgentState.js';
+import { analysisWorkerTools, moveWorkerTools } from './fileTools.js';
+import {
+    analysisWorkerSystemPrompt,
+    moveWorkerSystemPrompt,
+    moveWorkerUserPrompt
+} from '../src/prompt/fileAgent.js';
 
-const maxFileToRead = 250;
-
-const FLAG_DESCRIPTIONS: Record<string, string> = {
-  "dupes":  "duplicate filenames detected",
-  "no-ext": "files with no extension found",
-  "deep":   "folder nesting deeper than 3 levels",
-  "large":  "files over 100MB present",
-  "hidden": "hidden dotfiles present",
-  "empty":  "empty subfolders exist"
-};
-
-function buildMasterSummary(workerJson: any): string {
-  // Decode flags into human readable text
-  const flagList = workerJson.flags
-    ? workerJson.flags.split("|").map(f => FLAG_DESCRIPTIONS[f] ?? f)
-    : [];
-
-  // Decode fileGroups into readable lines
-  const groupLines = workerJson.fileGroups
-    .map(g => `  - ${g.category}: ${g.count} files (${g.extensions}) e.g. "${g.sample}"`)
-    .join("\n");
-
-  // Build a clean natural language summary for master
-    return `
-    Folder: ${workerJson.path}
-    Total: ${workerJson.totalFiles} files, ${workerJson.totalMB}MB
-
-    File breakdown:
-    ${groupLines}
-
-    ${flagList.length > 0 ? `Issues found:\n${flagList.map(f => `  - ${f}`).join("\n")}` : "No issues found."}
-    `.trim();
-}
-
-export const tools = {
-    analyzeFolder: defineChatSessionFunction({
-        description: "This is your worker agent which will investigates all the files in the provided location. You have to call this function only once, because if there are lot of files it will take time to get respond.",
+const analyzeFolder = defineChatSessionFunction({
+        description: "Spawns an analysis worker that investigates all files in the given folder. The worker autonomously pages through files in batches and returns a plain-text summary. Call this once after receiving the folder path from the user.",
         params: {
             type: "object",
             properties: {
                 path: {
                     type: "string",
-                    description: "Path of the folder where you want to investigate."
+                    description: "Absolute path of the folder to analyze."
                 },
                 ProcessId: {
                     type: "string",
-                    description: "The unique id to maintain the state of the agent."
+                    description: "The unique process id for this session, provided by the user."
                 }
-            }
-        },
-        async handler(params): Promise<string> {
-            const targetPath = params.path.toLowerCase();
-            console.log(`\x1b[95m[Worker Agent Action]\x1b[0m Reading files in directory: ${targetPath}`);
-            try {
-                
-                fileAgentRecord[params.ProcessId] = new fileAgentState();
-                let state = fileAgentRecord[params.ProcessId];
-                
-                let output = await fileUtil.getFilesListInAFolder(params.path);
-                if (output.length > 0){
-                    const llm = await LLMService.getInstance();
-                    const grammarForFileAnalyzer = await llm.llama.createGrammarForJsonSchema({
-                    type: "object",
-                    properties: {
-                        path: { type: "string" },
-                        totalFiles: { type: "integer" },
-                        totalMB: { type: "number" },             // number instead of "128 MB" string
-                        fileGroups: {
-                        type: "array",
-                        items: {
-                            type: "object",
-                            properties: {
-                            category: { type: "string" },      // readable
-                            count: { type: "integer" },        // readable
-                            extensions: { type: "string" },    // "jpg,png,heic" joined — big saving
-                            sample: { type: "string" }         // ONE filename, not an array
-                            },
-                            required: ["category", "count", "extensions", "sample"]
-                        }
-                        },
-                        flags: { type: "string" }                // "dupes|no-ext" joined — readable enough
-                    },
-                    required: ["status", "error", "path", "totalFiles", "totalMB", "fileGroups", "flags"]
-                    });
-                    let fileInformation : string = `FOLDER Path : ${targetPath} \n Total files discovered in the folder : ${output.length} \n`;
-                    if (output.length <= maxFileToRead){
-                        // output = output.slice(0, 50);
-                        fileInformation += output.join("\n");
-                        let response = await workerAgent.getWorkerAgent<any>(fileAnalyzerWorkerAgentPrompt, fileInformation, grammarForFileAnalyzer, "file_Analyzer");
-                        return buildMasterSummary(response);
-                    }else{
-
-                        const chunkFileArray = fileUtil.ChunkArray(output, maxFileToRead);
-                        
-                        // const response = await Promise.all(
-                        //     chunkFileArray.map((chunks,ind) => workerAgent.getWorkerAgent<any>(fileAnalyzerWorkerAgentPrompt, chunks.join("\n"), grammarForFileAnalyzer, `file_Analyzer_${ind}`))
-                        // );
-
-                        // const overallResp = response.map(resp => buildMasterSummary(resp)).join("\n\n");
-                        // return overallResp;
-
-                        let overallRespArray: string[] = [];
-                        for (let ind = 0; ind < chunkFileArray.length; ind++) {
-                            const chunks  = chunkFileArray[ind];
-                            if (chunks != undefined &&  chunks.length > 0){
-                                fileInformation += `You are given only ${chunks.length} files to analyze. \n` + chunks.join("\n");
-                                const resp = await workerAgent.getWorkerAgent<any>(fileAnalyzerWorkerAgentPrompt, fileInformation, grammarForFileAnalyzer, `file_Analyzer_${ind}`);
-                                let response = `Worker Agent ${ind} Analysis of ${chunks.length} files. \n` + buildMasterSummary(resp);
-                                overallRespArray.push(response);
-                            }
-                        }
-                        let overralRespond = `We had total ${output.length} files in our directory : ${targetPath}. So our Agent decided to run muliple Worker Agent to analyze these files. Below is the analysis of each chunk of size ${maxFileToRead} by ${chunkFileArray.length} Worker Agent. \n\n`;
-                        return overralRespond + overallRespArray.join("\n\n");
-                    }
-                }
-                return `There are no files in the given directory "${targetPath}"`;
-            } catch (e: any) {
-                return `Error reading directory '${targetPath}': ${e.message}`;
-            }
-        }
-    }),
-    createFolder: defineChatSessionFunction({
-        description: "This tool allows you to create folders for the given list of absolute paths.",
-        params:{
-            type: "array",
-            items: {
-                type: "string",
-                description: "The absolute path of the folder you want to create."
             },
-            description: "A List of folder paths to be created.",
+            required: ["path", "ProcessId"]
         },
         async handler(params): Promise<string> {
-            const folderList  = params;
-            let response : string[] = [];
-            for(const folderName of folderList){
-                const targetPath = folderName.toLowerCase();
-                try {
-                    await fs.mkdir(targetPath, { recursive: true });
-                    response.push(`Status : Success | Folder Created '${targetPath}'`)
-                } catch (e: any) {
-                    response.push(`Status : Failed | Folder Not Created '${targetPath}'`)
-                }
-            }
-            return response.join("\n");
-        }
+            console.log(`\x1b[95m[Master Tool]\x1b[0m analyzeFolder → ${params.path}`);
+            try {
 
-    }),
-    executeMovePlan: defineChatSessionFunction({
-        description: "This is a worker agent which will move the files to the newly created folders as per your instruction.",
-        params:{
+                const state = fileAgentRecord[params.ProcessId];
+                if (!state) return "Error: Invalid ProcessId.";
+
+                state.workspacePath = params.path;
+                const userPrompt = `ProcessId: ${params.ProcessId} \n\n Begin analysis now. Start by calling checkFolder.`;
+
+                const summary = await workerAgent.getWorkerAgentWithFunctionsReact(
+                    analysisWorkerSystemPrompt,
+                    userPrompt,
+                    analysisWorkerTools,
+                    "AnalysisWorker"
+                );
+
+                const directories = await getAllDirectories(state.workspacePath, state.workspacePath);
+                const folderSummary = `List of folders found in this workspace(${state.workspacePath}) : \n ${directories.join('\n')}`
+
+                return `${summary} \n\n ${folderSummary}`;
+            } catch (e: any) {
+                return `Error during analysis: ${e.message}`;
+            }
+        }
+    });
+
+    const getAllDirectories = async (dirPath: string, basePath: string = ''): Promise<string[]> => {
+                    let dirs: string[] = [];
+                    const entries = await fs.readdir(dirPath, { withFileTypes: true });
+                    for (const entry of entries) {
+                        if (entry.isDirectory()) {
+                            const relPath = path.join(basePath, entry.name);
+                            dirs.push(relPath);
+                            const subDirs = await getAllDirectories(path.join(dirPath, entry.name), relPath);
+                            dirs = dirs.concat(subDirs);
+                        }
+                    }
+                    return dirs;
+                };
+
+    const createFolders = defineChatSessionFunction({
+        description: "Creates the given list of absolute folder paths inside the workspace. All paths must be within the workspace established for the current ProcessId session.",
+        params: {
             type: "object",
             properties: {
+                ProcessId: {
+                    type: "string",
+                    description: "The process id for the current session, used to validate paths."
+                },
+                folders: {
+                    type: "array",
+                    items: { type: "string" },
+                    description: "List of absolute folder paths to create."
+                }
+            },
+            required: ["ProcessId", "folders"]
+        },
+        async handler(params): Promise<string> {
+            const state = fileAgentRecord[params.ProcessId];
+            if (!state) return "Error: Invalid ProcessId.";
+
+            try {
+                fileUtil.ValidatePaths(state.workspacePath, params.folders);
+            } catch (e: any) {
+                return `Error: ${e.message}`;
+            }
+
+            const results: string[] = [];
+            for (const folderPath of params.folders) {
+                try {
+                    await fs.mkdir(folderPath, { recursive: true });
+                    results.push(`Created: ${folderPath}`);
+                } catch (e: any) {
+                    results.push(`Failed: ${folderPath} — ${e.message}`);
+                }
+            }
+            return results.join("\n");
+        }
+    });
+
+    const executeMovePlan = defineChatSessionFunction({
+        description: "Spawns a move worker that moves files according to the confirmed plan. The worker autonomously pages through files and moves them one at a time. Call this after createFolders with the plan confirmed by the user.",
+        params: {
+            type: "object",
+            properties: {
+                ProcessId: {
+                    type: "string",
+                    description: "The process id for the current session."
+                },
                 instruction: {
                     type: "string",
-                    description: "Please provide the clear instruction to the worker agent, how the files should be analyzed and categorized based on the planning and confirmation you have with the USER.",
+                    description: "Clear description of how files should be categorized and moved, matching the plan confirmed by the user."
                 },
-                folders:{
+                folders: {
                     type: "string",
-                    description: "Please provide the absolute path of newly created folder concatenated with the '|'."
+                    description: "Pipe-separated list of absolute destination folder paths that were created (e.g. '/foo/Images|/foo/Docs')."
                 }
-            }
+            },
+            required: ["ProcessId", "instruction", "folders"]
         },
-        async handler (params): Promise<string> {
-            const actualPath = fileAgent.path;
-            let folders = params.folders.split("|");
-            fileUtil.ValidatePaths(actualPath, folders);
-            let files = await fileUtil.getFilesListInAFolder(actualPath);
-            if (files.length > 0){
-                let folderList: string = folders.map(x => `- ${x}`).join('\n');
+        async handler(params): Promise<string> {
+            console.log(`\x1b[95m[Master Tool]\x1b[0m executeMovePlan for ProcessId: ${params.ProcessId}`);
 
-                const fileInformation = `Total files discovered in the folder : ${files.length} \n` + files.join("\n");                
-                const llm = await LLMService.getInstance();
-                console.log(llm.getGlobalContextUsage(llm.context));
+            const state = fileAgentRecord[params.ProcessId];
+            if (!state) return "Error: Invalid ProcessId.";
 
-                const llmSession = await llm.createSession(fileMoverWorkerAgentSystemPrompt);
+            // Reset cursor so move worker starts from the beginning of the file list
+            state.lastReadInd = 0;
 
-                const grammarFileMove = await llm.llama.createGrammarForJsonSchema({
-                    type: "array",
-                    items: {
-                        type: "object",
-                        properties: {
-                            source: { type: "string" },
-                            destination: { type: "string" },
-                        },
-                        required: ["source", "destination"]
-                    }
-                });
-                
-                const instructionPrompt = fileMoverWorkerAgentUserPrompt(params.instruction, folderList, fileInformation);
-                const reply = await llmSession.prompt(instructionPrompt, {
-                            temperature: 0.7,
-                            topP:0.8,
-                            topK: 20,
-                            minP: 0.0,
-                            grammar: grammarFileMove
-                        });
-    
-                const parsedResponse = grammarFileMove.parse(reply);
-                console.log(llm.getGlobalContextUsage(llm.context));
-                console.log(llm.getSessionContextUsage(llmSession));
-                llm.endSession(llmSession);
-                console.log(llm.getGlobalContextUsage(llm.context));
+            const folderList = params.folders.split("|").map(f => `- ${f.trim()}`).join("\n");
 
-                const moveOperationList = parsedResponse;
-                let response : string[] = []
-                for (const fileInfo of moveOperationList) {
-                    try {
-                        const destDir = path.dirname(fileInfo.destination);
-                        await fs.mkdir(destDir, { recursive: true });
-                        
-                        await fs.rename(fileInfo.source, fileInfo.destination);
-                        response.push(`Status : Success: Moved '${fileInfo.source}' to '${fileInfo.destination}'.`);
-                    } catch (e: any) {
-                        response.push(`Status : Failed: Could not move '${fileInfo.source}' to '${fileInfo.destination}'.`);
-                    }
-                }
+            const userPrompt = moveWorkerUserPrompt(
+                params.ProcessId,
+                state.workspacePath,
+                params.instruction,
+                folderList
+            );
+
+            try {
+                const summary = await workerAgent.getWorkerAgentWithFunctionsReact(
+                    moveWorkerSystemPrompt,
+                    userPrompt,
+                    moveWorkerTools,
+                    "MoveWorker"
+                );
+                return summary;
+            } catch (e: any) {
+                return `Error during move execution: ${e.message}`;
             }
-
-            return '';
         }
-    })
-};
+    });
+
+    const finalSummary = defineChatSessionFunction({
+        description: "Provides the final summary of how many files were moved and how many files are remainning.",
+        params: {
+            type: "object",
+            properties: {
+                 path: {
+                    type: "string",
+                    description: "Absolute path of the folder to analyze."
+                },
+                ProcessId: {
+                    type: "string",
+                    description: "The unique process id for this session, provided by the user."
+                }
+            },
+            required: ["ProcessId"]
+        },
+        async handler(params): Promise<string> {
+            console.log(`\x1b[95m[Master Tool]\x1b[0m finalSummary → ${params.path}`);
+            try {
+                const state = fileAgentRecord[params.ProcessId];
+                if (!state) return "Error: Invalid ProcessId.";
+                if (!state.workspacePath) return "Error: workspacePath not set in state.";
+
+                const fileMoved = state.fileListData.filter(file => file.status == true);
+                const fileNotMoved = state.fileListData.filter(file => file.status == false);
+                
+                const fileNotMovedList = fileNotMoved.slice(0, 10).map( val =>  `${val.fileName} | Type: ${val.ext}`).join(" , ")
+
+                return JSON.stringify({
+                    TotalFilesCount: state.fileListData.length,
+                    TotalFilesMoved: fileMoved.length,
+                    RemainingFiles: fileNotMoved.length,
+                    RemainingFilesList: fileNotMovedList,
+                    message: "Call analyzeFolder if you need more information on the remaining files."
+                });
+            } catch (e: any) {
+                return `Error during provideing final summary: ${e.message}`;
+            }
+        }
+    });
+export const fileOrgMastertools = { analyzeFolder, createFolders, executeMovePlan, finalSummary};
