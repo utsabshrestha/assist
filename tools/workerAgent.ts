@@ -4,12 +4,26 @@ import { LLMService } from "../src/LLMService.js";
 class WorkerAgent{
     public async getWorkerAgentWithGrammar<T = string>(systemPrompt : string, userPrompt : string, grammar? : LlamaJsonSchemaGrammar<any>, workerName? : string) : Promise<T | string> {
         const llm = await LLMService.getInstance();
-        const llmSession = await llm.createSession(systemPrompt);        
+        const llmSession = await llm.createSession(systemPrompt);   
         
         let reply: string;
         if (grammar) {
             reply = await llmSession.prompt(userPrompt, {
-                grammar
+                grammar,
+                onResponseChunk(chunk) {
+                    const isThoughtSegment = chunk.type === "segment" &&
+                        chunk.segmentType === "thought";
+                    const isCommentSegment = chunk.type === "segment" &&
+                        chunk.segmentType === "comment";
+                    
+                    if (chunk.type === "segment" && chunk.segmentStartTime != null)
+                        process.stdout.write(` [segment start: ${chunk.segmentType}] `);
+
+                    process.stdout.write(chunk.text);
+
+                    if (chunk.type === "segment" && chunk.segmentEndTime != null)
+                        process.stdout.write(` [segment end: ${chunk.segmentType}] `);
+                }
             });
         } else {
             reply = await llmSession.prompt(userPrompt);
@@ -31,7 +45,21 @@ class WorkerAgent{
         const llmSession = await llm.createSession(systemPrompt);
 
         const reply = await llmSession.prompt(userPrompt, {
-            functions: toolFunction
+            functions: toolFunction,
+            onResponseChunk(chunk) {
+                    const isThoughtSegment = chunk.type === "segment" &&
+                        chunk.segmentType === "thought";
+                    const isCommentSegment = chunk.type === "segment" &&
+                        chunk.segmentType === "comment";
+                    
+                    if (chunk.type === "segment" && chunk.segmentStartTime != null)
+                        process.stdout.write(` [segment start: ${chunk.segmentType}] `);
+
+                    process.stdout.write(chunk.text);
+
+                    if (chunk.type === "segment" && chunk.segmentEndTime != null)
+                        process.stdout.write(` [segment end: ${chunk.segmentType}] `);
+                }
         });
 
         llm.getSessionContextUsage(llmSession, workerName ? workerName : "workerAgent");
@@ -54,9 +82,23 @@ class WorkerAgent{
 
         const reply = await llmSession.prompt(userPrompt, {
             functions: toolFunction,
-            temperature: 0.3,
+            temperature: 0.1,
             topP: 0.9,
             topK: 20,
+            onResponseChunk(chunk) {
+                    const isThoughtSegment = chunk.type === "segment" &&
+                        chunk.segmentType === "thought";
+                    const isCommentSegment = chunk.type === "segment" &&
+                        chunk.segmentType === "comment";
+                    
+                    if (chunk.type === "segment" && chunk.segmentStartTime != null)
+                        process.stdout.write(` [segment start: ${chunk.segmentType}] `);
+
+                    process.stdout.write(chunk.text);
+
+                    if (chunk.type === "segment" && chunk.segmentEndTime != null)
+                        process.stdout.write(` [segment end: ${chunk.segmentType}] `);
+                }
         });
 
         const usage = llm.getSessionContextUsage(llmSession, label);

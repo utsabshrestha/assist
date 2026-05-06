@@ -5,12 +5,18 @@ export class fileAgentState {
     public extensions: string[] = [];
     public lastReadInd: number = 0;
     public processId: string = "";
-    public fileRecord : Record<string, fileStatus> = {}
+    public fileRecord : Record<string, fileStatus> = {};
+    public fileByExtension : Record<string, fileStatus[]> = {};
 
     public AddFile(file : fileStatus){
+        if (this.fileByExtension[file.ext] == undefined){
+            this.fileByExtension[file.ext] = [];
+        }
+        
         if(this.fileRecord[file.fileName] == undefined){
             this.fileListData.push(file);
             this.fileRecord[file.fileName] = file;
+            this.fileByExtension[file.ext]?.push(file);
         }
     }
 }

@@ -39,8 +39,22 @@ class FileAgent {
                 temperature: 0.6,
                 topP: 0.9,
                 topK: 20,
-                onTextChunk: (chunk) => {
-                    process.stdout.write(chunk);
+                // onTextChunk: (chunk) => {
+                //     process.stdout.write(chunk);
+                // },
+                onResponseChunk(chunk) {
+                    const isThoughtSegment = chunk.type === "segment" &&
+                        chunk.segmentType === "thought";
+                    const isCommentSegment = chunk.type === "segment" &&
+                        chunk.segmentType === "comment";
+                    
+                    if (chunk.type === "segment" && chunk.segmentStartTime != null)
+                        process.stdout.write(` [segment start: ${chunk.segmentType}] `);
+
+                    process.stdout.write(chunk.text);
+
+                    if (chunk.type === "segment" && chunk.segmentEndTime != null)
+                        process.stdout.write(` [segment end: ${chunk.segmentType}] `);
                 }
             });
             console.log("\n");

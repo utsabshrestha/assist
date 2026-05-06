@@ -27,6 +27,7 @@ const checkFolder = defineChatSessionFunction({
                 .filter((e: fs.Dirent) => e.isFile())
                 .sort((a: fs.Dirent, b: fs.Dirent) => a.name.localeCompare(b.name));
             let totalFileSize : number = 0;
+            const fileCountByExt : Record<string, number> = {};
 
             await Promise.all(files.map(async (file: fs.Dirent) => {
                 const fullPath = path.join(state.workspacePath, file.name);
@@ -35,6 +36,11 @@ const checkFolder = defineChatSessionFunction({
                     const sizeKB = parseFloat((stats.size / 1024).toFixed(2));
                     totalFileSize += sizeKB;
                     const ext = path.extname(file.name) || "no extension";
+                    if(fileCountByExt[ext] === undefined){
+                        fileCountByExt[ext] = 0;
+                    }
+                    fileCountByExt[ext] += 1;
+
                     state.AddFile(new fileStatus(file.name, fullPath, false, sizeKB, ext));
                 } catch(ex) {
                     console.log(`Error encountered while listing files ${ex}`)
@@ -50,9 +56,10 @@ const checkFolder = defineChatSessionFunction({
             state.lastReadInd = 0;
             
             return JSON.stringify({
-                fileCount: files.length,
+                TotalFileCount: files.length,
                 TotalFileSize: `${(totalFileSize / 1024).toFixed(2)} MB`,
-                extensions: extensions.join(", "),
+                extensionsFound: extensions.join(", "),
+                FileCountByExtension: fileCountByExt,
                 message: "Call getNextFileBatch to retrieve file names in batches of 50."
             });
         } catch (e: any) {
@@ -94,6 +101,54 @@ const getNextFileBatch = defineChatSessionFunction({
             remaining: remaining,
             done: remaining <= 0
         });
+    }
+});
+
+const getNextFileNamesBatch = defineChatSessionFunction({
+    description: "Returns the next batch of up to 50 file names from the workspace. Call repeatedly until the response contains 'done: true' to process all files incrementally.",
+    params: {
+        type: "object",
+        properties: {
+            ProcessId: {
+                type: "string",
+                description: "The unique process id for this session."
+            },
+            extension:{
+                type: "string",
+                description: "The file extension which you want to get categorical summary of. eg: `.pdf`"
+            }
+        },
+        required: ["ProcessId"]
+    },
+    async handler(params): Promise<string> {
+        try{
+            const state = fileAgentRecord[params.ProcessId];
+            if (!state) return "Error: Invalid ProcessId.";
+            if (state.fileByExtension[params.extension] === undefined) return "Error: No file list found of this extension.";
+
+            const fileList = state.fileByExtension[params.extension]?.filter(file => file.status == false);
+    
+            if(fileList != undefined && fileList.length > 0){
+                
+                const batch = fileList.slice(state.lastReadInd, state.lastReadInd + 50);    
+        
+                state.lastReadInd += batch.length;
+                const remaining = fileList.length - state.lastReadInd;
+        
+                return JSON.stringify({
+                    files: batch,
+                    batchSize: batch.length,
+                    processedSoFar: state.lastReadInd,
+                    remaining: remaining,
+                    done: remaining <= 0
+                });
+            }
+            return "No files are found with this extension."
+
+        }catch (ex){
+            console.log(ex);
+            return `error encountered ${ex}. Please report back to user`;
+        }
     }
 });
 
@@ -147,5 +202,5 @@ const moveFile = defineChatSessionFunction({
     }
 });
 
-export const analysisWorkerTools = { checkFolder, getNextFileBatch };
+export const analysisWorkerTools = { getNextFileNamesBatch };
 export const moveWorkerTools = { getNextFileBatch, moveFile };

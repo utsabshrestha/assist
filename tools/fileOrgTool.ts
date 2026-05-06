@@ -1,18 +1,110 @@
 import * as fs from 'fs/promises';
 import * as path from 'path';
-import { defineChatSessionFunction } from 'node-llama-cpp';
+import { defineChatSessionFunction, getLlama } from 'node-llama-cpp';
 import { fileUtil } from '../src/utils/fileUtility.js';
 import { workerAgent } from './workerAgent.js';
-import { fileAgentRecord, fileAgentState } from '../src/state/fileAgentState.js';
+import { fileAgentRecord, fileAgentState, fileStatus } from '../src/state/fileAgentState.js';
 import { analysisWorkerTools, moveWorkerTools } from './fileTools.js';
 import {
+    analysisWorkerNewSession,
     analysisWorkerSystemPrompt,
+    analysisWorkerSystemPrompt2,
     moveWorkerSystemPrompt,
     moveWorkerUserPrompt
 } from '../src/prompt/fileAgent.js';
+import { LLMService } from '../src/LLMService.js';
 
-const analyzeFolder = defineChatSessionFunction({
-        description: "Spawns an analysis worker that investigates all files in the given folder. The worker autonomously pages through files in batches and returns a plain-text summary. Call this once after receiving the folder path from the user.",
+const GetCategoricalSummaryOfFilesByExtension = defineChatSessionFunction({
+        description: "Spawns an worker agent that analyzes all files by their filenames of given extension, categorize them into a logical category. Send only one extension per call.",
+        params: {
+            type: "object",
+            properties: {
+                path: {
+                    type: "string",
+                    description: "Absolute path of the folder to analyze."
+                },
+                ProcessId: {
+                    type: "string",
+                    description: "The unique process id for this session, provided by the user."
+                },
+                extension:{
+                    type: "string",
+                    description: "The file extension which you want to get categorical summary of. eg: `.pdf`"
+                }
+            },
+            required: ["path", "ProcessId"]
+        },
+        async handler(params): Promise<string> {
+            console.log(`\x1b[95m[Master Tool]\x1b[0m GetCategoricalSummaryOfFiles → ${params.path}`);
+            try {
+
+                const state = fileAgentRecord[params.ProcessId];
+                if (!state) return "Error: Invalid ProcessId.";
+                if (!state.workspacePath) return "Error: workspacePath not set in state.";
+                const files  = state.fileByExtension[params.extension]
+                if (files == undefined || files.length < 0) return "No files found with this extension. Report this to User.";
+                
+                const chunk = fileUtil.ChunkArray<fileStatus>(files, 20);
+                state.workspacePath = params.path;
+                state.lastReadInd = 0;
+
+                const llama = await (await LLMService.getInstance()).llama;
+                const grammer = await llama.createGrammarForJsonSchema({
+                    type: "object",
+                    properties:{
+                        categories: {
+                            type: "array",
+                            description: "list of the category you have found",
+                            items: {
+                                type: "string",
+                                description: "The name of the category you have found."
+                            }
+                        }
+                    }
+                });
+
+                if( chunk.length < 0 || chunk === undefined) return "";
+                let s = {};
+                
+                for (let index = 0; index < chunk.length; index++) {
+                    const fileChunk = chunk[index];
+                    const file = fileChunk.filter(x => x.status == false).map( x => x.fileName).join(' \n ');
+                    
+                    let userPrompt = "";
+                    if (index === 0) {
+                        userPrompt = `File Extension Type : "${params.extension}". \n List of files: \n ${file}`;
+                    } else {
+                        const category = JSON.stringify(s);
+                        userPrompt = analysisWorkerNewSession(params.extension, category, file);
+                    }
+
+                    const summary = await workerAgent.getWorkerAgentWithFunctionsReact(
+                        analysisWorkerSystemPrompt2(params.extension),
+                        userPrompt,
+                        {},
+                        "AnalysisWorker"
+                    );
+
+                    // const summary : any = 
+                    // await workerAgent.getWorkerAgentWithGrammar(
+                    //     analysisWorkerSystemPrompt2(params.extension),
+                    //     userPrompt,
+                    //     grammer,
+                    //     "AnalysisWorker"
+                    // )
+                    s = JSON.parse(summary);
+                }
+
+
+                return JSON.stringify(s);
+            } catch (e: any) {
+                return `Error during analysis: ${e.message}`;
+            }
+        }
+    });
+
+    const getFolderSummary = defineChatSessionFunction({
+        description: "This tool will provide total number of files in the folder, list of different file extensions, number of files per extensions, total size, list of directories inside the folder.",
         params: {
             type: "object",
             properties: {
@@ -28,41 +120,80 @@ const analyzeFolder = defineChatSessionFunction({
             required: ["path", "ProcessId"]
         },
         async handler(params): Promise<string> {
-            console.log(`\x1b[95m[Master Tool]\x1b[0m analyzeFolder → ${params.path}`);
+            console.log(`\x1b[95m[Master Tool]\x1b[0m getFolderSummary → ${params.path}`);
+            const state = fileAgentRecord[params.ProcessId];
+            if (!state) return "Error: Invalid ProcessId.";
+            state.workspacePath = params.path;
+    
             try {
+                await fs.access(params.path);
+            } catch {
+                return `Error: Workspace folder does not exist: '${params.path}'. Folders must be exist to organize the files.`;
+            }
+            
+            try {
+                const entries = await fs.readdir(state.workspacePath, { withFileTypes: true });
+                const files = entries
+                    .filter((e: fs.Dirent) => e.isFile())
+                    .sort((a: fs.Dirent, b: fs.Dirent) => a.name.localeCompare(b.name));
+                let totalFileSize : number = 0;
+                
+                await Promise.all(files.map(async (file: fs.Dirent) => {
+                    const fullPath = path.join(state.workspacePath, file.name);
+                    try {
+                        const stats = await fs.stat(fullPath);
+                        const sizeKB = parseFloat((stats.size / 1024).toFixed(2));
+                        totalFileSize += sizeKB;
+                        const ext = path.extname(file.name) || "no extension";
+                        state.AddFile(new fileStatus(file.name, fullPath, false, sizeKB, ext));
+                    } catch(ex) {
+                        console.log(`Error encountered while listing files ${ex}`)
+                    }
+                }));
+                
+                const fileCountByExt : Record<string, number> = {};
+                Object.entries(state.fileByExtension).forEach(([extensions, list]) => {
+                    fileCountByExt[extensions] = list.length;
+                })
+    
+                const extensions: string[] = Array.from(new Set(
+                    files.map((f: fs.Dirent) => path.extname(f.name).toLowerCase()).filter((e: string) => e !== '')
+                ));
+                
+                const directories = await getAllDirectories(state.workspacePath, state.workspacePath, 0);
 
-                const state = fileAgentRecord[params.ProcessId];
-                if (!state) return "Error: Invalid ProcessId.";
 
-                state.workspacePath = params.path;
-                const userPrompt = `ProcessId: ${params.ProcessId} \n\n Begin analysis now. Start by calling checkFolder.`;
-
-                const summary = await workerAgent.getWorkerAgentWithFunctionsReact(
-                    analysisWorkerSystemPrompt,
-                    userPrompt,
-                    analysisWorkerTools,
-                    "AnalysisWorker"
-                );
-
-                const directories = await getAllDirectories(state.workspacePath, state.workspacePath);
-                const folderSummary = `List of folders found in this workspace(${state.workspacePath}) : \n ${directories.join('\n')}`
-
-                return `${summary} \n\n ${folderSummary}`;
+                state.filesCount = files.length;
+                state.extensions = extensions;
+                state.lastReadInd = 0;
+                
+                return JSON.stringify({
+                    TotalFileCount: files.length,
+                    TotalFileSize: `${(totalFileSize / 1024).toFixed(2)} MB`,
+                    extensionsFound: extensions.join(", "),
+                    FileCountByExtension: fileCountByExt,
+                    directories: directories,
+                    message: "Call GetCategoricalSummaryOfFilesByExtension to get summary of files of particular file extensions."
+                });
             } catch (e: any) {
-                return `Error during analysis: ${e.message}`;
+                return `We have encountered Error reading folder: ${e.message}, please report to the user immediately.`;
             }
         }
     });
 
-    const getAllDirectories = async (dirPath: string, basePath: string = ''): Promise<string[]> => {
+
+    const getAllDirectories = async (dirPath: string, basePath: string = '', subFolder: number): Promise<string[]> => {
                     let dirs: string[] = [];
+                    subFolder++;
                     const entries = await fs.readdir(dirPath, { withFileTypes: true });
                     for (const entry of entries) {
                         if (entry.isDirectory()) {
                             const relPath = path.join(basePath, entry.name);
                             dirs.push(relPath);
-                            const subDirs = await getAllDirectories(path.join(dirPath, entry.name), relPath);
-                            dirs = dirs.concat(subDirs);
+                            if (subFolder < 3){
+                                const subDirs = await getAllDirectories(path.join(dirPath, entry.name), relPath, subFolder);
+                                dirs = dirs.concat(subDirs);
+                            }
                         }
                     }
                     return dirs;
@@ -133,6 +264,7 @@ const analyzeFolder = defineChatSessionFunction({
 
             const state = fileAgentRecord[params.ProcessId];
             if (!state) return "Error: Invalid ProcessId.";
+            if (!state.workspacePath) return "Error: workspacePath not set in state.";
 
             // Reset cursor so move worker starts from the beginning of the file list
             state.lastReadInd = 0;
@@ -161,13 +293,13 @@ const analyzeFolder = defineChatSessionFunction({
     });
 
     const finalSummary = defineChatSessionFunction({
-        description: "Provides the final summary of how many files were moved and how many files are remainning.",
+        description: "Provides the final summary of how many files were moved and how many files are remainning in the current workspace.",
         params: {
             type: "object",
             properties: {
                  path: {
                     type: "string",
-                    description: "Absolute path of the folder to analyze."
+                    description: "Absolute path of the workspace folder to analyze."
                 },
                 ProcessId: {
                     type: "string",
@@ -200,4 +332,4 @@ const analyzeFolder = defineChatSessionFunction({
             }
         }
     });
-export const fileOrgMastertools = { analyzeFolder, createFolders, executeMovePlan, finalSummary};
+export const fileOrgMastertools = { getFolderSummary, GetCategoricalSummaryOfFilesByExtension, createFolders, executeMovePlan, finalSummary};
