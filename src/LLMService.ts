@@ -1,12 +1,18 @@
-import { getLlama, Llama, LlamaChatSession, LlamaContext, LlamaModel } from "node-llama-cpp";
+import { getLlama, Llama, LlamaChatSession, LlamaContext, LlamaModel, LlamaEmbeddingContext } from "node-llama-cpp";
 
 export class LLMService {
     private static instance: LLMService | null = null;
     readonly model_1 = './Qwen3.5-9B-Q5_K_M.gguf';
     readonly model_2 = './Qwen3.5-4B-Q4_K_M.gguf';
+    readonly sentence_model = './nomic-embed-text-v1.5.Q6_K.gguf';
+
     public model!: LlamaModel;
     public context!: LlamaContext;
     public llama!: Llama;
+    
+    // Embedding specific properties
+    public embedModel: LlamaModel | null = null;
+    public embedContext: LlamaEmbeddingContext | null = null;
 
     private constructor() { }
     public sessions : LlamaChatSession[] = [];
@@ -34,6 +40,39 @@ export class LLMService {
         });
         console.log("Context Size:", this.context.contextSize);
     }
+    
+    public async getEmbeddingModel(): Promise<{ model: LlamaModel, context: LlamaEmbeddingContext }> {
+        if (!this.embedModel) {
+            console.log("Loading embedding model...");
+            this.embedModel = await this.llama.loadModel({
+                modelPath: this.sentence_model
+            });
+            this.embedContext = await this.embedModel.createEmbeddingContext({
+                batchSize: 512
+            });
+            console.log("Embedding model loaded.");
+        }
+        return { model: this.embedModel, context: this.embedContext! };
+    }
+
+    public async generateEmbedding(text: string, taskPrefix = "search_document: "): Promise<number[]> {
+        const { context } = await this.getEmbeddingModel();
+        const embedding = await context.getEmbeddingFor(taskPrefix + text);
+        return Array.from(embedding.vector);
+    }
+
+    public disposeEmbeddingModel() {
+        if (this.embedContext) {
+            this.embedContext.dispose();
+            this.embedContext = null;
+        }
+        if (this.embedModel) {
+            this.embedModel.dispose();
+            this.embedModel = null;
+        }
+        console.log("Embedding model disposed.");
+    }
+
     public async createSession(systemPrompt: string): Promise<LlamaChatSession> {
         if(!LLMService.instance){
             throw new Error("LLM Sercie is not instantiated !");

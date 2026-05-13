@@ -22,10 +22,10 @@ export class fileAgentState {
 }
 
 export class fileStatus{
-    constructor(fileName: string, filePath: string, status: boolean = false, fileSize: number, ext : string) {
+    constructor(fileName: string, filePath: string, fileSize: number, ext : string) {
         this.fileName = fileName;
         this.filePath = filePath;
-        this.status = status;
+        this.status = false;
         this. fileSize = fileSize;
         this.ext = ext;
     }
@@ -35,6 +35,8 @@ export class fileStatus{
     public status : boolean = false;
     public fileSize : number = 0;
     public ext : string = "";
+    public category : string = "";
+    public folderPath : string = "";
 }
 
 export const fileAgentRecord: Record<string, fileAgentState> = {};

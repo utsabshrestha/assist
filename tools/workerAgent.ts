@@ -79,12 +79,12 @@ class WorkerAgent{
 
         const label = workerName ?? "Worker";
         console.log(`\x1b[95m[${label}]\x1b[0m Starting ReAct loop...`);
-
+        const maxThoughtTokens = 200;
         const reply = await llmSession.prompt(userPrompt, {
             functions: toolFunction,
-            temperature: 0.1,
-            topP: 0.9,
-            topK: 20,
+            budgets: {
+                thoughtTokens: maxThoughtTokens
+            },
             onResponseChunk(chunk) {
                     const isThoughtSegment = chunk.type === "segment" &&
                         chunk.segmentType === "thought";

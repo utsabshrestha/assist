@@ -19,11 +19,16 @@
   },
   "homepage": "https://github.com/utsabshrestha/assist#readme",
   "dependencies": {
+    "mammoth": "^1.12.0",
     "minimatch": "^10.2.5",
-    "node-llama-cpp": "^3.18.1"
+    "node-llama-cpp": "^3.18.1",
+    "officeparser": "^6.1.1",
+    "pdf-parse": "^1.1.1",
+    "xlsx": "^0.18.5"
   },
   "devDependencies": {
     "@types/node": "^25.6.0",
+    "@types/pdf-parse": "^1.1.5",
     "ts-node": "^10.9.2",
     "tsx": "^4.21.0",
     "typescript": "^6.0.2"

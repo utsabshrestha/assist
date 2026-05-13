@@ -20,7 +20,7 @@ class FileAgent {
         state.processId = processId;
         fileAgentRecord[processId] = state;
         
-        const FileOrganizeSystemPrompt = `${fileOrgMasterAgentSystemPrompt}\n\nProcessId: ${processId}`;
+        const FileOrganizeSystemPrompt = fileOrgMasterAgentSystemPrompt(processId);
         const llm = await LLMService.getInstance();
         const llmSession = await llm.createSession(FileOrganizeSystemPrompt);
 
