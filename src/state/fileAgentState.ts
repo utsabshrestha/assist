@@ -1,3 +1,11 @@
+export type TodoStatus = 'not-started' | 'in-progress' | 'completed' | 'blocked' | 'failed';
+export interface TodoItem {
+    id: number;
+    title: string;
+    status: TodoStatus;
+    notes?: string;
+}
+
 export class fileAgentState {
     public workspacePath: string = "";
     public fileListData: fileStatus[] = [];
@@ -7,6 +15,7 @@ export class fileAgentState {
     public processId: string = "";
     public fileRecord : Record<string, fileStatus> = {};
     public fileByExtension : Record<string, fileStatus[]> = {};
+    public todoList: TodoItem[] = [];
 
     public AddFile(file : fileStatus){
         if (this.fileByExtension[file.ext] == undefined){

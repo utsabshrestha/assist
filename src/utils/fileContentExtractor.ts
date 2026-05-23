@@ -52,9 +52,15 @@ export class FileContentExtractor {
                 // parseOffice is async
                 content = await officeParser.parseOffice(filePath);
             } else if (ext === '.txt' || ext === '.md' || ext === '.json') {
-                // Read as text
-                const text = await fs.readFile(filePath, 'utf-8');
-                content = text;
+                // Read only the first 2048 bytes to save memory (preventing huge memory spikes on large logs/json)
+                const fd = await fs.open(filePath, 'r');
+                try {
+                    const buffer = Buffer.alloc(2048);
+                    const { bytesRead } = await fd.read(buffer, 0, 2048, 0);
+                    content = buffer.toString('utf-8', 0, bytesRead);
+                } finally {
+                    await fd.close();
+                }
             }
         } catch (e) {
             console.error(`Failed to extract content for ${filePath}: ${e}`);

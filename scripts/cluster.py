@@ -30,7 +30,7 @@ def main():
         # A threshold of 0.40 is a middle ground between too many (0.35) and too few (0.50) clusters.
         clusterer = AgglomerativeClustering(
             n_clusters=None,
-            distance_threshold=0.39, # Adjusted to 0.40 to balance cluster sizes
+            distance_threshold=0.35, # Adjusted to 0.40 to balance cluster sizes
             metric='cosine',
             linkage='average'
         )
@@ -57,15 +57,16 @@ def main():
             # Sort by distance to get a distribution from center to edge
             sorted_local_indices = distances.argsort()
             
-            if len(sorted_local_indices) <= 3:
+            if len(sorted_local_indices) <= 4:
                 chosen_local_indices = sorted_local_indices
             else:
-                # Pick 3 diverse points: Core (closest), Middle (median), Edge (furthest)
+                # Pick 4 diverse points across the distance distribution
                 n = len(sorted_local_indices)
                 chosen_local_indices = [
-                    sorted_local_indices[0],      # Central core
-                    sorted_local_indices[n // 2], # Average distance
-                    sorted_local_indices[-1]      # Outer edge
+                    sorted_local_indices[0],             # Central core
+                    sorted_local_indices[n // 3],        # Inner-middle distance
+                    sorted_local_indices[(2 * n) // 3],  # Outer-middle distance
+                    sorted_local_indices[-1]             # Outer edge
                 ]
                 
             chosen_global_indices = cluster_indices[chosen_local_indices].tolist()
