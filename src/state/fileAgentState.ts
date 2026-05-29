@@ -13,9 +13,11 @@ export class fileAgentState {
     public extensions: string[] = [];
     public lastReadInd: number = 0;
     public processId: string = "";
+    public planConfirmed: boolean = false;
     public fileRecord : Record<string, fileStatus> = {};
     public fileByExtension : Record<string, fileStatus[]> = {};
     public todoList: TodoItem[] = [];
+    public globalNotes: string[] = [];
 
     public AddFile(file : fileStatus){
         if (this.fileByExtension[file.ext] == undefined){

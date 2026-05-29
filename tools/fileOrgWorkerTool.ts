@@ -1,0 +1,184 @@
+import * as path from 'path';
+import { defineChatSessionFunction } from 'node-llama-cpp';
+import { fileAgentRecord } from '../src/state/fileAgentState.js';
+import { FileClassificationTool } from './fileClassificationTool.js';
+
+export const workerCompletionStatus: Record<string, boolean> = {};
+
+export const GetCategoriesoffilesofspecificextension = defineChatSessionFunction({
+    description: "Analyzes the contents of files for a given extension, generating embeddings and using an AI clustering algorithm to automatically group them into highly descriptive category folder names. Returns a dictionary mapping the generated folder name to a brief list of the top 3 files in that category to save context. Use this to automatically generate folder names based on actual file content.",
+    params: {
+        type: "object",
+        properties: {
+            path: {
+                type: "string",
+                description: "Absolute path of the folder to analyze."
+            },
+            ProcessId: {
+                type: "string",
+                description: "The unique process id for this session, provided by the user."
+            },
+            extension:{
+                type: "string",
+                description: "The file extension which you want to get categorical summary of. eg: `.pdf`"
+            }
+        },
+        required: ["path", "ProcessId"]
+    },
+    async handler(params): Promise<string> {
+        console.log(`\x1b[95m[Worker Tool]\x1b[0m GetCategoricalSummaryOfFiles → ${params.path}`);
+        try {
+            const state = fileAgentRecord[params.ProcessId];
+            if (!state) return "Error: Invalid ProcessId.";
+            if (!state.workspacePath) return "Error: workspacePath not set in state.";
+
+            const files  = state.fileByExtension[params.extension]
+            if (files == undefined || files.length < 0) return "No files found with this extension. Report this to User.";
+            
+            state.workspacePath = params.path;
+            state.lastReadInd = 0;
+
+            // Extract unmatched file paths to be grouped (using actual absolute path in fileStatus model)
+            const filePaths = files.filter(x => x.status == false).map(x => path.join(state.workspacePath, x.fileName));
+            if (filePaths.length === 0) return "All files of this extension are already processed.";
+
+            // Delegate to the new AI Clustering logic using embeddings & AgglomerativeClustering
+            const categorized = await FileClassificationTool.clusterAndNameFiles(filePaths);
+
+            // Update the category property of the files in the state
+            for (const [folderName, fileNames] of Object.entries(categorized)) {
+                for (const fileName of fileNames) {
+                    if (state.fileRecord[fileName]) {
+                        state.fileRecord[fileName].category = folderName;
+                    }
+                }
+            }
+
+            // Prepare a summarized payload for the master agent (max 3 files per category) to save tokens
+            const categorizedSummary: Record<string, string[]> = {};
+            for (const [folderName, fileNames] of Object.entries(categorized)) {
+                categorizedSummary[folderName] = fileNames.slice(0, 3);
+                if (fileNames.length > 3) {
+                    categorizedSummary[folderName].push(`...and ${fileNames.length - 3} more files`);
+                }
+            }
+
+            return JSON.stringify(categorizedSummary);
+        } catch (e: any) {
+            return `Error during analysis: ${e.message}`;
+        }
+    }
+});
+
+export const UpdateCategoryNameTool = defineChatSessionFunction({
+    description: "Updates the category name for files that currently belong to an old category. Use this when the user wants to rename a proposed category before finalizing folders.",
+    params: {
+        type: "object",
+        properties: {
+            ProcessId: { type: "string" },
+            extension: { type: "string" },
+            oldCategoryName: { type: "string", description: "The existing category name to be changed." },
+            newCategoryName: { type: "string", description: "The new category name requested by the user." }
+        },
+        required: ["ProcessId", "extension", "oldCategoryName", "newCategoryName"]
+    },
+    async handler(params): Promise<string> {
+        console.log(`\x1b[95m[Worker Tool]\x1b[0m UpdateCategoryNameTool -> '${params.oldCategoryName}' to '${params.newCategoryName}'`);
+        const state = fileAgentRecord[params.ProcessId];
+        if (!state) return "Error: Invalid ProcessId.";
+        
+        if (!state.fileByExtension[params.extension]) {
+            return `Error: No files found for extension ${params.extension}`;
+        }
+
+        let updatedCount = 0;
+        for (const file of state.fileByExtension[params.extension]) {
+            if (file.category === params.oldCategoryName) {
+                file.category = params.newCategoryName;
+                updatedCount++;
+            }
+        }
+
+        return `Successfully updated category name from '${params.oldCategoryName}' to '${params.newCategoryName}' for ${updatedCount} files.`;
+    }
+});
+
+export const FinalizeThefolderforthefilesforEachExtensions = defineChatSessionFunction({
+     description: "This tool will finalize the folder for the files types you have passed.",
+    params: {
+        type: "object",
+        properties: {
+            json: {
+                type: "object",
+                description: "An object containing extensions, category, and folder structure.",
+                properties: {
+                    extensions: {
+                        type: "array",
+                        items: { type: "string" },
+                        description: "Array of extensions being finalized (e.g. ['.jpg', '.png'])."
+                    },
+                    folderStructure: {
+                        type: "array",
+                        items: {
+                            type: "object",
+                            properties: {
+                                category: {
+                                    type : "string",
+                                    description: "category name"
+                                },
+                                folder: {
+                                    type: "string",
+                                    description: "absolute path of the folder to be created for this category."
+                                }
+                            }
+                        }
+                    }
+                }
+            },
+            ProcessId: {
+                type: "string",
+                description: "The unique process id for this session, provided by the user."
+            }
+        },
+        required: ["json", "ProcessId"]
+    },
+    async handler(params): Promise<string> {
+        console.log(`\x1b[95m[Worker Tool]\x1b[0m FinalizeThefolderforthefilesforEachExtensions → ${params.ProcessId}`);
+        const state = fileAgentRecord[params.ProcessId];
+        if (!state) return "Error: Invalid ProcessId.";
+
+        const exts = params.json.extensions;
+        const folderStructure = params.json.folderStructure;
+        
+        if (!exts || exts.length === 0) {
+            return "Error: No extensions provided in the json object.";
+        }
+
+        let updatedCount = 0;
+        
+        for (const ext of exts) {
+            if (!state.fileByExtension[ext]) continue;
+
+            // Iterate through every file of this extension in the global state
+            for (const file of state.fileByExtension[ext]) {
+                // Find mapping by exact category match, generic default match, or fallback to the first folder provided if no category exists
+                const mapping = folderStructure.find((f: any) => f.category === file.category) 
+                             || folderStructure.find((f: any) => !f.category || f.category.trim() === "")
+                             || (folderStructure.length === 1 ? folderStructure[0] : null);
+                
+                if (mapping && mapping.folder) {
+                    const resolvedTarget = path.resolve(mapping.folder);
+                    if (!resolvedTarget.startsWith(path.resolve(state.workspacePath))) {
+                        return `Error: The folder path '${mapping.folder}' is outside the authorized workspace path '${state.workspacePath}'. All folders must be strictly inside the workspace.`;
+                    }
+                    file.folderPath = resolvedTarget;
+                    updatedCount++;
+                }
+            }
+
+            workerCompletionStatus[`${params.ProcessId}_${ext}`] = true;
+        }
+
+        return `Successfully finalized destination folder for ${updatedCount} files across extensions: ${exts.join(', ')}.`;
+    }
+});

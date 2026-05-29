@@ -2,6 +2,19 @@ import * as fs from 'fs/promises';
 import * as path from 'path';
 
 export class FileContentExtractor {
+    private static extractTextFromParsedObject(obj: any): string {
+        if (typeof obj === 'string') return obj;
+        if (typeof obj === 'number' || typeof obj === 'boolean') return String(obj);
+        if (obj === null || obj === undefined) return '';
+        if (Array.isArray(obj)) {
+            return obj.map(FileContentExtractor.extractTextFromParsedObject).join(' ');
+        }
+        if (typeof obj === 'object') {
+            return Object.values(obj).map(FileContentExtractor.extractTextFromParsedObject).join(' ');
+        }
+        return '';
+    }
+
     /**
      * Extracts a snippet of text from the given file, capped at around 1000 chars.
      */
@@ -67,7 +80,10 @@ export class FileContentExtractor {
         }
 
         // Clean up and truncate
-        content = content.replace(/\s+/g, ' ').trim();
+        if (typeof content !== 'string') {
+            content = FileContentExtractor.extractTextFromParsedObject(content);
+        }
+        content = (content || '').replace(/\s+/g, ' ').trim();
         if (content.length > 1000) {
             content = content.substring(0, 1000) + '...';
         }

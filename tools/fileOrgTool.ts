@@ -5,83 +5,12 @@ import { defineChatSessionFunction, getLlama, LlamaJsonSchemaGrammar } from 'nod
 import { fileUtil } from '../src/utils/fileUtility.js';
 import { workerAgent } from './workerAgent.js';
 import { fileAgentRecord, fileAgentState, fileStatus } from '../src/state/fileAgentState.js';
-import { analysisWorkerTools, moveWorkerTools } from './fileTools.js';
-import {
-    analysisWorkerNewSession,
-    analysisWorkerSystemPrompt,
-    analysisWorkerSystemPrompt2,
-    moveWorkerSystemPrompt,
-    moveWorkerUserPrompt
-} from '../src/prompt/fileAgent.js';
 import { LLMService } from '../src/LLMService.js';
 import { FileClassificationTool } from './fileClassificationTool.js';
 import { FileContentExtractor } from '../src/utils/fileContentExtractor.js';
-
-const GetCategoriesoffilesofspecificextension = defineChatSessionFunction({
-        description: "Analyzes the contents of files for a given extension, generating embeddings and using an AI clustering algorithm to automatically group them into highly descriptive category folder names. Returns a dictionary mapping the generated folder name to a brief list of the top 3 files in that category to save context. Use this to automatically generate folder names based on actual file content.",
-        params: {
-            type: "object",
-            properties: {
-                path: {
-                    type: "string",
-                    description: "Absolute path of the folder to analyze."
-                },
-                ProcessId: {
-                    type: "string",
-                    description: "The unique process id for this session, provided by the user."
-                },
-                extension:{
-                    type: "string",
-                    description: "The file extension which you want to get categorical summary of. eg: `.pdf`"
-                }
-            },
-            required: ["path", "ProcessId"]
-        },
-        async handler(params): Promise<string> {
-            console.log(`\x1b[95m[Master Tool]\x1b[0m GetCategoricalSummaryOfFiles → ${params.path}`);
-            try {
-
-                const state = fileAgentRecord[params.ProcessId];
-                if (!state) return "Error: Invalid ProcessId.";
-                if (!state.workspacePath) return "Error: workspacePath not set in state.";
-
-                const files  = state.fileByExtension[params.extension]
-                if (files == undefined || files.length < 0) return "No files found with this extension. Report this to User.";
-                
-                state.workspacePath = params.path;
-                state.lastReadInd = 0;
-
-                // Extract unmatched file paths to be grouped (using actual absolute path in fileStatus model)
-                const filePaths = files.filter(x => x.status == false).map(x => path.join(state.workspacePath, x.fileName));
-                if (filePaths.length === 0) return "All files of this extension are already processed.";
-
-                // Delegate to the new AI Clustering logic using embeddings & AgglomerativeClustering
-                const categorized = await FileClassificationTool.clusterAndNameFiles(filePaths);
-
-                // Update the category property of the files in the state
-                for (const [folderName, fileNames] of Object.entries(categorized)) {
-                    for (const fileName of fileNames) {
-                        if (state.fileRecord[fileName]) {
-                            state.fileRecord[fileName].category = folderName;
-                        }
-                    }
-                }
-
-                // Prepare a summarized payload for the master agent (max 3 files per category) to save tokens
-                const categorizedSummary: Record<string, string[]> = {};
-                for (const [folderName, fileNames] of Object.entries(categorized)) {
-                    categorizedSummary[folderName] = fileNames.slice(0, 3);
-                    if (fileNames.length > 3) {
-                        categorizedSummary[folderName].push(`...and ${fileNames.length - 3} more files`);
-                    }
-                }
-
-                return JSON.stringify(categorizedSummary);
-            } catch (e: any) {
-                return `Error during analysis: ${e.message}`;
-            }
-        }
-    });
+import { documentWorkerAgentSystemPrompt, nonDocumentWorkerAgentSystemPrompt } from '../src/prompt/fileAgent.js';
+import { stat } from 'fs';
+import { GetCategoriesoffilesofspecificextension, UpdateCategoryNameTool, FinalizeThefolderforthefilesforEachExtensions, workerCompletionStatus } from './fileOrgWorkerTool.js';
 
     const GetFolderSummaryTool = defineChatSessionFunction({
         description: "This tool will provide total number of files in the folder, list of different file extensions, number of files per extensions, total size, list of directories inside the folder.",
@@ -178,78 +107,7 @@ const GetCategoriesoffilesofspecificextension = defineChatSessionFunction({
         }
     });
 
-    const FinalizeThefolderforthefilesforEachExtensions = defineChatSessionFunction({
-         description: "This tool will finalize the folder for the files types you have passed.",
-        params: {
-            type: "object",
-            properties: {
-                json: {
-                    type: "object",
-                    description: "An object of file extension, category and folder",
-                    properties: {
-                        extension : {
-                            type: "string",
-                            description: "extension of a file you are finalizing"
-                        },
-                        folderStructure : {
-                            type: "array",
-                            items: {
-                                type: "object",
-                                properties: {
-                                    category: {
-                                        type : "string",
-                                        description: "category name"
-                                    },
-                                    folder: {
-                                        type: "string",
-                                        description: "absolute path of the folder to be created for this category."
-                                    }
-                                }
-                            }
-                        }
-                    }
-                },
-                ProcessId: {
-                    type: "string",
-                    description: "The unique process id for this session, provided by the user."
-                }
-            },
-            required: ["json", "ProcessId"]
-        },
-        async handler(params): Promise<string> {
-            console.log(`\x1b[95m[Master Tool]\x1b[0m FinalizeThefolderforthefilesforEachExtensions → ${params.ProcessId}`);
-            const state = fileAgentRecord[params.ProcessId];
-            if (!state) return "Error: Invalid ProcessId.";
     
-            const ext = params.json.extension;
-            const folderStructure = params.json.folderStructure;
-
-            if (!state.fileByExtension[ext]) {
-                return `Error: No files found for extension ${ext}`;
-            }
-
-            let updatedCount = 0;
-            // Iterate through every file of this extension in the global state
-            for (const file of state.fileByExtension[ext]) {
-                // Find mapping by exact category match, generic default match, or fallback to the first folder provided if no category exists
-                const mapping = folderStructure.find((f: any) => f.category === file.category) 
-                             || folderStructure.find((f: any) => !f.category || f.category.trim() === "")
-                             || (folderStructure.length === 1 ? folderStructure[0] : null);
-                
-                if (mapping && mapping.folder) {
-                    const resolvedTarget = path.resolve(mapping.folder);
-                    if (!resolvedTarget.startsWith(path.resolve(state.workspacePath))) {
-                        return `Error: The folder path '${mapping.folder}' is outside the authorized workspace path '${state.workspacePath}'. All folders must be strictly inside the workspace.`;
-                    }
-                    file.folderPath = resolvedTarget;
-                    updatedCount++;
-                }
-            }
-
-            return `Successfully finalized destination folder for ${updatedCount} files (Extension: ${ext}).`;
-        }
-    });
-
     const getAllDirectories = async (dirPath: string, basePath: string = '', subFolder: number): Promise<string[]> => {
                     let dirs: string[] = [];
                     subFolder++;
@@ -298,83 +156,6 @@ const GetCategoriesoffilesofspecificextension = defineChatSessionFunction({
                 }
             }
 
-            // === FOLDER DE-DUPLICATION WORKER ===
-            const originalFolders = Object.keys(plan);
-            if (originalFolders.length > 1) {
-                console.log("\n\x1b[93m[System]\x1b[0m Spinning up De-duplication Worker to merge semantically identical folders...");
-                const llmService = await LLMService.getInstance();
-                
-                const dedupeGrammar = new LlamaJsonSchemaGrammar(llmService.llama, {
-                    type: "object",
-                    properties: {
-                        merges: {
-                            type: "array",
-                            description: "List of folder merges. Only include folders that mean the exact same thing.",
-                            items: {
-                                type: "object",
-                                properties: {
-                                    source: { type: "string" },
-                                    target: { type: "string" }
-                                },
-                                required: ["source", "target"]
-                            }
-                        }
-                    },
-                    required: ["merges"]
-                } as const);
-
-                const dedupePrompt = `Review this list of generated folder names. Identify any redundant folders that mean the exact same thing (e.g. "Tax_Documents" and "Taxes_2023").\n\nFolders:\n${JSON.stringify(originalFolders)}\n\nIMPORTANT: Only merge if absolutely certain. Provide the merges as a JSON.`;
-
-                try {
-                    const dedupeResult = await workerAgent.getWorkerAgentWithGrammar<{merges: {source: string, target: string}[]}>(
-                        "You are an expert data taxonomist. Merge equivalent categories.",
-                        dedupePrompt,
-                        dedupeGrammar,
-                        "De-duplication Worker"
-                    );
-
-                    let merges = dedupeResult && typeof dedupeResult !== "string" ? dedupeResult.merges : [];
-                    if (typeof dedupeResult === "string" && dedupeResult.trim() !== "") {
-                        try { merges = JSON.parse(dedupeResult).merges; } catch (e) {}
-                    }
-
-                    if (merges && merges.length > 0) {
-                        console.log(`\x1b[92m[Worker]\x1b[0m Found ${merges.length} redundant folders. Consolidating...`);
-                        
-                        // Apply merges to global state
-                        for (const files of Object.values(state.fileByExtension)) {
-                            for (const file of files) {
-                                if (file.folderPath) {
-                                    const baseFolder = path.basename(file.folderPath);
-                                    const merge = merges.find(m => m.source === baseFolder || m.source === file.folderPath);
-                                    if (merge) {
-                                        const newDir = path.dirname(file.folderPath) !== '.' ? path.dirname(file.folderPath) : state.workspacePath;
-                                        const newTarget = path.join(newDir, merge.target);
-                                        file.folderPath = newTarget;
-                                    }
-                                }
-                            }
-                        }
-
-                        // Rebuild plan
-                        plan = {};
-                        for (const files of Object.values(state.fileByExtension)) {
-                            for (const file of files) {
-                                if (file.folderPath) {
-                                    if (!plan[file.folderPath]) plan[file.folderPath] = [];
-                                    if (!plan[file.folderPath].includes(file.fileName)) {
-                                        plan[file.folderPath].push(file.fileName);
-                                    }
-                                }
-                            }
-                        }
-                    }
-                } catch (e) {
-                    console.error("\x1b[91mError during De-duplication Worker:\x1b[0m", e);
-                }
-            }
-            // ===================================
-
             // Print beautifully to the user's console directly (bypassing the LLM context limit)
             console.log("\n========================================================");
             console.log("                📦 PROPOSED MOVEMENT PLAN               ");
@@ -395,102 +176,28 @@ const GetCategoriesoffilesofspecificextension = defineChatSessionFunction({
             console.log("========================================================\n");
 
             // Pause the tool execution to ask for user input via terminal
-            const rl = readline.createInterface({
-                input: process.stdin,
-                output: process.stdout
-            });
-
             return new Promise((resolve) => {
+                const rl = readline.createInterface({
+                    input: process.stdin,
+                    output: process.stdout
+                });
                 rl.question("\x1b[95mDo you confirm this plan? [Type 'confirm' to proceed, or type changes you want]: \x1b[0m", (answer) => {
                     rl.close();
                     const trimmed = answer.trim().toLowerCase();
                     if (trimmed === 'confirm' || trimmed === 'y' || trimmed === 'yes') {
+                        state.planConfirmed = true;
                         resolve("User confirmed the plan exactly as is. You may proceed to create the folders and execute the move plan.");
                     } else {
-                        resolve(`User requests changes to the plan: "${answer}". Please adjust the categories/folders as requested by the user using the Finalize tool again, or respond accordingly.`);
+                        state.planConfirmed = false;
+                        resolve(`User did not confimed the plan. This is what user said about the plan : "${answer}". Please adjust the categories/folders as requested by the user using the Finalize tool again, or respond accordingly.`);
                     }
                 });
             });
         }
     });
 
-    const RenameGenericFiles = defineChatSessionFunction({
-        description: "Scans for poorly named document files (like 'untitled' or 'scan_123') and intelligently renames them based on their content using an AI worker. Call this right before 'getFinalPlanConfirmation' or 'Executetheprocess' to ensure files are renamed properly.",
-        params: {
-            type: "object",
-            properties: {
-                ProcessId: {
-                    type: "string",
-                    description: "The unique process id for this session."
-                }
-            },
-            required: ["ProcessId"]
-        },
-        async handler(params): Promise<string> {
-            console.log(`\x1b[95m[Master Tool]\x1b[0m RenameGenericFiles → ${params.ProcessId}`);
-            const state = fileAgentRecord[params.ProcessId];
-            if (!state) return "Error: Invalid ProcessId.";
-
-            // Regex looks for "untitled", "scan", "document", "img" or just numbers at the start of the filename
-            const genericRegex = /^scan|^untitled|^[0-9]{8,}|^img|^document/i;
-            let renamedCount = 0;
-
-            const filesToRename = state.fileListData.filter(f => genericRegex.test(f.fileName) && f.status === false);
-
-            if (filesToRename.length === 0) {
-                return "No generically named files found to rename. Proceed to the next step.";
-            }
-
-            console.log(`\x1b[93m[System]\x1b[0m Spinning up File Renaming Worker for ${filesToRename.length} files...`);
-
-            const llmService = await LLMService.getInstance();
-            const renameGrammar = new LlamaJsonSchemaGrammar(llmService.llama, {
-                type: "object",
-                properties: {
-                    newName: { type: "string" }
-                },
-                required: ["newName"]
-            } as const);
-
-            for (const file of filesToRename) {
-                const content = await FileContentExtractor.extractContent(path.join(state.workspacePath, file.fileName));
-                if (!content || content.length < 20) continue;
-
-                const prompt = `Based on the following content snippet, generate a short, descriptive 3-5 word filename using snake_case (keep the original extension: ${file.ext}). Do not include folder paths.\n\nContent:\n${content}`;
-                
-                try {
-                    const response = await workerAgent.getWorkerAgentWithGrammar<{newName: string}>(
-                        "You are an expert file organizer. Generate a descriptive snake_case filename. Only output the JSON.", 
-                        prompt, 
-                        renameGrammar, 
-                        "Renaming Worker"
-                    );
-                    
-                    let newName = (response && typeof response !== 'string') ? response.newName : "";
-                    if (typeof response === 'string' && response.trim() !== '') {
-                        try { newName = JSON.parse(response).newName; } catch(e) {}
-                    }
-
-                    if (newName) {
-                        if (!newName.toLowerCase().endsWith(file.ext.toLowerCase())) newName += file.ext;
-                        
-                        console.log(`\x1b[92m[Worker]\x1b[0m Renaming "${file.fileName}" -> "${newName}"`);
-                        
-                        // We strictly update state. so `Executetheprocess` handles the actual rename operation seamlessly.
-                        file.fileName = newName;
-                        renamedCount++;
-                    }
-                } catch (e) {
-                    console.error("Rename error for file", file.fileName, e);
-                }
-            }
-            
-            return `Successfully generated descriptive names for ${renamedCount} previously poorly-named files. You should now use getFinalPlanConfirmation or Executetheprocess.`;
-        }
-    });
-
     const Executetheprocess = defineChatSessionFunction({
-        description: "Executes the finalized file movement plan. Automatically creates all required folders and moves the files. It handles errors gracefully without crashing and returns a comprehensive summary of successes and any errors.",
+        description: "Executes the finalized file movement plan. Only execute this tool if user explicitly confirmed the plan. This tool will Automatically creates all required folders and moves the files. It handles errors gracefully without crashing and returns a comprehensive summary of successes and any errors.",
         params: {
             type: "object",
             properties: {
@@ -509,6 +216,11 @@ const GetCategoriesoffilesofspecificextension = defineChatSessionFunction({
             console.log(`\x1b[95m[Master Tool]\x1b[0m Executetheprocess → ${params.path}`);
             const state = fileAgentRecord[params.ProcessId];
             if (!state) return "Error: Invalid ProcessId.";
+
+            // Hard stop if plan hasn't been confirmed explicitly
+            if (!state.planConfirmed) {
+                return "Error: You CANNOT execute the process because the user has not confirmed the plan. You must use getFinalPlanConfirmation and receive explicit user approval first.";
+            }
 
             // Security check: ensure LLM isn't trying to operate on a different path
             if (path.resolve(params.path) !== path.resolve(state.workspacePath)) {
@@ -591,4 +303,229 @@ const GetCategoriesoffilesofspecificextension = defineChatSessionFunction({
         }
     });
 
-export const fileOrgMastertools = { GetFolderSummaryTool, GetCategoriesoffilesofspecificextension, FinalizeThefolderforthefilesforEachExtensions, RenameGenericFiles, getFinalPlanConfirmation, Executetheprocess};
+    const OrganizeDocumentWorkerTool = defineChatSessionFunction({
+        description: "Spins up a worker to organize a specific document file extension (pdf, docx, doc, txt, xlsx, xls, csv, ppt, pptx, json, md). It will loop through the user to get categories, summarize and finalize the folders for that one extension.",
+        params: {
+            type: "object",
+            properties: {
+                path: { type: "string", description: "Absolute path of the folder to analyze." },
+                ProcessId: { type: "string", description: "The unique process id for this session, provided by the user." },
+                extension: { type: "string", description: "The specific document file extension to organize (e.g. '.pdf', '.docx')." }
+            },
+            required: ["path", "ProcessId", "extension"]
+        },
+        async handler(params): Promise<string> {
+            console.log(`\x1b[95m[Master Tool]\x1b[0m OrganizeDocumentWorkerTool for ${params.extension}`);
+
+            const state = fileAgentRecord[params.ProcessId];
+            if (!state) return "Error: Invalid ProcessId.";
+
+            const llmService = await LLMService.getInstance();
+            
+            return new Promise(async (resolve) => {
+                const session = await llmService.createSession(documentWorkerAgentSystemPrompt(params.extension, state.workspacePath));
+                const runLoop = () => {
+                    const rl = readline.createInterface({
+                        input: process.stdin,
+                        output: process.stdout
+                    });
+                    rl.question("\x1b[94mUser (Docs):\x1b[0m ", async (answer) => {
+                        rl.close();
+                        try {
+                            const response = await session.prompt(answer, { functions: { GetCategoriesoffilesofspecificextension, UpdateCategoryNameTool, FinalizeThefolderforthefilesforEachExtensions } });
+                            console.log(`\x1b[92mAssistant:\x1b[0m ${response}`);
+                        } catch (e: any) {
+                            console.log(`\x1b[91mError:\x1b[0m ${e.message}`);
+                        }
+                        
+                        if (workerCompletionStatus[`${params.ProcessId}_${params.extension}`]) {
+                            llmService.endSession(session);
+                            resolve(`Auto-finalized: Document organizing worker finished for ${params.extension}. You can update the status in todo list for ${params.extension}.`);
+                            return;
+                        }
+                        runLoop();
+                    });
+                };
+
+                const response = await session.prompt(`Start organizing ${params.extension} files for ProcessId: ${params.ProcessId} and path: ${params.path}`, { functions: { GetCategoriesoffilesofspecificextension, UpdateCategoryNameTool, FinalizeThefolderforthefilesforEachExtensions } });
+                console.log(`\x1b[92mAssistant:\x1b[0m ${response}`);
+                if (workerCompletionStatus[`${params.ProcessId}_${params.extension}`]) {
+                    llmService.endSession(session);
+                    resolve(`Auto-finalized: Document organizing worker finished for ${params.extension}. You can update the status in todo list for ${params.extension}.`);
+                    return;
+                }
+                runLoop();
+            });
+        }
+    });
+
+    const OrganizeNonDocumentWorkerTool = defineChatSessionFunction({
+        description: "Spins up a worker to organize multiple non-document file extensions (e.g. all image types, or all video types together).",
+        params: {
+            type: "object",
+            properties: {
+                path: { type: "string", description: "Absolute path of the folder to analyze." },
+                ProcessId: { type: "string", description: "The unique process id for this session, provided by the user." },
+                extensions: { 
+                    type: "array", 
+                    items: { type: "string" },
+                    description: "An array of non-document file extensions to organize together (e.g. ['.jpg', '.png', '.gif'])." 
+                }
+            },
+            required: ["path", "ProcessId", "extensions"]
+        },
+        async handler(params): Promise<string> {
+            console.log(`\x1b[95m[Master Tool]\x1b[0m OrganizeNonDocumentWorkerTool for ${params.extensions.join(', ')}`);
+            const llmService = await LLMService.getInstance();
+            
+            return new Promise(async (resolve) => {
+                const session = await llmService.createSession(nonDocumentWorkerAgentSystemPrompt(params.extensions));
+
+                
+
+                const runLoop = () => {
+                    const rl = readline.createInterface({
+                        input: process.stdin,
+                        output: process.stdout
+                    });
+                    rl.question("\x1b[94mUser (Docs):\x1b[0m ", async (answer) => {
+                        rl.close();
+                        const trimmed = answer.trim().toLowerCase();
+                        if (trimmed === 'done' || trimmed === 'cancel') {
+                            llmService.endSession(session);
+                            resolve("Non-document organizing worker finished. Continue with next steps.");
+                            return;
+                        }
+                        try {
+                            const response = await session.prompt(answer, { functions: { FinalizeThefolderforthefilesforEachExtensions, UpdateCategoryNameTool } });
+                            console.log(`\x1b[92mAssistant:\x1b[0m ${response}`);
+                        } catch (e: any) {
+                            console.log(`\x1b[91mError:\x1b[0m ${e.message}`);
+                        }
+                        
+                        const allDone = params.extensions.every(ext => workerCompletionStatus[`${params.ProcessId}_${ext}`]);
+                        if (allDone) {
+                            llmService.endSession(session);
+                            resolve(`Auto-finalized: Non-document organizing worker finished for ${params.extensions.join(', ')}.  You can update the status in todo list for this task`);
+                            return;
+                        }
+                        runLoop();
+                    });
+                };
+
+                const response = await session.prompt(`Start organizing these extensions: ${params.extensions.join(', ')} for ProcessId: ${params.ProcessId} and path: ${params.path}`, { functions: { FinalizeThefolderforthefilesforEachExtensions, UpdateCategoryNameTool } });
+                console.log(`\x1b[92mAssistant:\x1b[0m ${response}`);
+                
+                const allDone = params.extensions.every(ext => workerCompletionStatus[`${params.ProcessId}_${ext}`]);
+                if (allDone) {
+                    llmService.endSession(session);
+                    resolve(`Auto-finalized: Non-document organizing worker finished for ${params.extensions.join(', ')}. You can update the status in todo list for this task`);
+                    return;
+                }
+                runLoop();
+            });
+        }
+    });
+
+
+    const MemoryScratchpadTool = defineChatSessionFunction({
+        description: "A secure scratchpad to record your thoughts, specify user constraints, or note down findings. Use 'add_note' to append a note, and 'view' to read all notes.",
+        params: {
+            type: "object",
+            properties: {
+                ProcessId: { type: "string" },
+                action: { type: "string", enum: ["add_note", "view"], description: "Action to perform on scratchpad." },
+                note: { type: "string", description: "The content to remember. Used ONLY when action is 'add_note'." }
+            },
+            required: ["ProcessId", "action"]
+        },
+        async handler(params): Promise<string> {
+            console.log(`\x1b[95m[Master Tool]\x1b[0m MemoryScratchpadTool (Action: ${params.action})`);
+            const state = fileAgentRecord[params.ProcessId];
+            if (!state) return "Error: Invalid ProcessId.";
+
+            if (params.action === "add_note") {
+                if (!params.note) return "Error: note is required for 'add_note' action.";
+                state.globalNotes.push(params.note);
+                return `Note recorded successfully. Current notes:\n- ${state.globalNotes.join('\n- ')}`;
+            }
+            
+            if (state.globalNotes.length === 0) return "Scratchpad is empty.";
+            return `🧠 Persistent Notes & Thoughts:\n- ${state.globalNotes.join('\n- ')}`;
+        }
+    });
+
+    const ManageTodoListTool = defineChatSessionFunction({
+        description: "Manages the To-Do list. Use 'create', 'update_task', or 'view' to track files and processing state.",
+        params: {
+            type: "object",
+            properties: {
+                ProcessId: { type: "string" },
+                action: { 
+                    type: "string", 
+                    enum: ["create", "update_task", "view"],
+                    description: "The operation to perform. 'create' replaces the list, 'update_task' modifies one item, 'view' returns current status."
+                },
+                todoList: {
+                    type: "array",
+                    description: "Used ONLY when action is 'create'. The full list of tasks.",
+                    items: {
+                        type: "object",
+                        properties: {
+                            id: { type: "number" },
+                            title: { type: "string", description: "Task description, e.g. 'Organize .pdf files'" },
+                            status: { type: "string", enum: ["not-started", "in-progress", "completed", "failed", "blocked"] },
+                            notes: { type: "string", description: "Optional outcome notes or failure reasons." }
+                        },
+                        required: ["id", "title", "status"]
+                    }
+                },
+                taskId: { type: "number", description: "Used ONLY when action is 'update_task'. The ID of the task to update." },
+                status: { type: "string", enum: ["not-started", "in-progress", "completed", "failed", "blocked"], description: "Used ONLY when action is 'update_task'. The new status." },
+                notes: { type: "string", description: "Optional notes when updating a task." }
+            },
+            required: ["ProcessId", "action"]
+        },
+        async handler(params): Promise<string> {
+            console.log(`\x1b[95m[Master Tool]\x1b[0m ManageTodoListTool (Action: ${params.action})`);
+            const state = fileAgentRecord[params.ProcessId];
+            if (!state) return "Error: Invalid ProcessId.";
+            
+            if (params.action === "create") {
+                if (!params.todoList) return "Error: todoList is required for 'create' action.";
+                state.todoList = params.todoList as any[];
+            } else if (params.action === "update_task") {
+                if (params.taskId === undefined || !params.status) return "Error: taskId and status are required for 'update_task' action.";
+                const task = state.todoList.find(t => t.id === params.taskId);
+                if (!task) return `Error: Task with id ${params.taskId} not found.`;
+                task.status = params.status as any;
+                if (params.notes) task.notes = params.notes;
+            }
+            
+            if ((!state.todoList || state.todoList.length === 0) && state.globalNotes.length === 0) return "Todo list and notes are empty.";
+            
+            let summary = "";
+            if (state.globalNotes && state.globalNotes.length > 0) {
+                summary += "🧠 Persistent Notes & Thoughts:\n- " + state.globalNotes.join('\n- ') + "\n\n";
+            }
+
+            summary += "📋 Current Todo List:\n";
+            if (state.todoList && state.todoList.length > 0) {
+                for (const item of state.todoList) {
+                    let icon = '⏳';
+                    if (item.status === 'completed') icon = '✅';
+                    else if (item.status === 'in-progress') icon = '🔄';
+                    else if (item.status === 'failed') icon = '❌';
+                    else if (item.status === 'blocked') icon = '🚧';
+                    
+                    const taskNotes = item.notes ? ` - Notes: ${item.notes}` : "";
+                    summary += `${icon} [${item.id}] ${item.title} (${item.status})${taskNotes}\n`;
+                }
+            } else {
+                summary += "(Empty list)\n";
+            }
+            return summary;
+        }
+    });
+
+export const fileOrgMastertools = { MemoryScratchpadTool, ManageTodoListTool, GetFolderSummaryTool, OrganizeDocumentWorkerTool, OrganizeNonDocumentWorkerTool, Executetheprocess, getFinalPlanConfirmation };

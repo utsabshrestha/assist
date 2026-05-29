@@ -7,12 +7,6 @@ import { fileAgentRecord, fileAgentState } from './state/fileAgentState.js';
 class FileAgent {
     readonly path: string = process.env.WORKSPACE_PATH ?? "/Users/utsabshrestha/code/download";
     public async chatLoop() {
-
-        const rl = readline.createInterface({
-            input: process.stdin,
-            output: process.stdout
-        });
-        
         console.log("\n\x1b[93m[System]\x1b[0m Loading node-llama-cpp (Apple Metal GPU enabled automatically)...");
         
         const state = new fileAgentState();
@@ -29,7 +23,13 @@ class FileAgent {
         console.log("Type 'exit' to quit.\n");
 
         while (true) {
+            const rl = readline.createInterface({
+                input: process.stdin,
+                output: process.stdout
+            });
             const userInput = await rl.question("\x1b[94mUser:\x1b[0m ");
+            rl.close();
+
             if (userInput.toLowerCase() === 'exit' || userInput.toLowerCase() === 'quit') break;
 
 
