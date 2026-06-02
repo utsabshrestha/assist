@@ -1,7 +1,9 @@
+import { OpenAISession } from "./workerAgent.js";
+
 import * as fs from 'fs/promises';
 import * as path from 'path';
 import * as readline from 'readline';
-import { defineChatSessionFunction, getLlama, LlamaJsonSchemaGrammar } from 'node-llama-cpp';
+// import { defineChatSessionFunction, getLlama, LlamaJsonSchemaGrammar } from 'node-llama-cpp';
 import { fileUtil } from '../src/utils/fileUtility.js';
 import { workerAgent } from './workerAgent.js';
 import { fileAgentRecord, fileAgentState, fileStatus } from '../src/state/fileAgentState.js';
@@ -12,7 +14,7 @@ import { documentWorkerAgentSystemPrompt, nonDocumentWorkerAgentSystemPrompt } f
 import { stat } from 'fs';
 import { GetCategoriesoffilesofspecificextension, UpdateCategoryNameTool, FinalizeThefolderforthefilesforEachExtensions, workerCompletionStatus } from './fileOrgWorkerTool.js';
 
-    const GetFolderSummaryTool = defineChatSessionFunction({
+    const GetFolderSummaryTool = ({
         description: "This tool will provide total number of files in the folder, list of different file extensions, number of files per extensions, total size, list of directories inside the folder.",
         params: {
             type: "object",
@@ -125,7 +127,7 @@ import { GetCategoriesoffilesofspecificextension, UpdateCategoryNameTool, Finali
                     return dirs;
                 };
 
-    const getFinalPlanConfirmation = defineChatSessionFunction({
+    const getFinalPlanConfirmation = ({
         description: "Prints the complete proposed file movement plan to the console and asks the user for confirmation. Call this ONLY after finalizing all folders for all extensions. The LLM will receive the user's response to either proceed or make changes.",
         params: {
             type: "object",
@@ -196,7 +198,7 @@ import { GetCategoriesoffilesofspecificextension, UpdateCategoryNameTool, Finali
         }
     });
 
-    const Executetheprocess = defineChatSessionFunction({
+    const Executetheprocess = ({
         description: "Executes the finalized file movement plan. Only execute this tool if user explicitly confirmed the plan. This tool will Automatically creates all required folders and moves the files. It handles errors gracefully without crashing and returns a comprehensive summary of successes and any errors.",
         params: {
             type: "object",
@@ -303,7 +305,7 @@ import { GetCategoriesoffilesofspecificextension, UpdateCategoryNameTool, Finali
         }
     });
 
-    const OrganizeDocumentWorkerTool = defineChatSessionFunction({
+    const OrganizeDocumentWorkerTool = ({
         description: "Spins up a worker to organize a specific document file extension (pdf, docx, doc, txt, xlsx, xls, csv, ppt, pptx, json, md). It will loop through the user to get categories, summarize and finalize the folders for that one extension.",
         params: {
             type: "object",
@@ -323,7 +325,7 @@ import { GetCategoriesoffilesofspecificextension, UpdateCategoryNameTool, Finali
             const llmService = await LLMService.getInstance();
             
             return new Promise(async (resolve) => {
-                const session = await llmService.createSession(documentWorkerAgentSystemPrompt(params.extension, state.workspacePath));
+                const session = new OpenAISession(llmService, documentWorkerAgentSystemPrompt(params.extension, state.workspacePath));
                 const runLoop = () => {
                     const rl = readline.createInterface({
                         input: process.stdin,
@@ -338,8 +340,8 @@ import { GetCategoriesoffilesofspecificextension, UpdateCategoryNameTool, Finali
                             console.log(`\x1b[91mError:\x1b[0m ${e.message}`);
                         }
                         
-                        if (workerCompletionStatus[`${params.ProcessId}_${params.extension}`]) {
-                            llmService.endSession(session);
+                        if (workerCompletionStatus[`${params.ProcessId}_${params.extension.replaceAll(".", "")}`]) {
+                            // session discarded
                             resolve(`Auto-finalized: Document organizing worker finished for ${params.extension}. You can update the status in todo list for ${params.extension}.`);
                             return;
                         }
@@ -350,7 +352,7 @@ import { GetCategoriesoffilesofspecificextension, UpdateCategoryNameTool, Finali
                 const response = await session.prompt(`Start organizing ${params.extension} files for ProcessId: ${params.ProcessId} and path: ${params.path}`, { functions: { GetCategoriesoffilesofspecificextension, UpdateCategoryNameTool, FinalizeThefolderforthefilesforEachExtensions } });
                 console.log(`\x1b[92mAssistant:\x1b[0m ${response}`);
                 if (workerCompletionStatus[`${params.ProcessId}_${params.extension}`]) {
-                    llmService.endSession(session);
+                    // session discarded
                     resolve(`Auto-finalized: Document organizing worker finished for ${params.extension}. You can update the status in todo list for ${params.extension}.`);
                     return;
                 }
@@ -359,7 +361,7 @@ import { GetCategoriesoffilesofspecificextension, UpdateCategoryNameTool, Finali
         }
     });
 
-    const OrganizeNonDocumentWorkerTool = defineChatSessionFunction({
+    const OrganizeNonDocumentWorkerTool = ({
         description: "Spins up a worker to organize multiple non-document file extensions (e.g. all image types, or all video types together).",
         params: {
             type: "object",
@@ -379,7 +381,7 @@ import { GetCategoriesoffilesofspecificextension, UpdateCategoryNameTool, Finali
             const llmService = await LLMService.getInstance();
             
             return new Promise(async (resolve) => {
-                const session = await llmService.createSession(nonDocumentWorkerAgentSystemPrompt(params.extensions));
+                const session = new OpenAISession(llmService, nonDocumentWorkerAgentSystemPrompt(params.extensions));
 
                 
 
@@ -392,7 +394,7 @@ import { GetCategoriesoffilesofspecificextension, UpdateCategoryNameTool, Finali
                         rl.close();
                         const trimmed = answer.trim().toLowerCase();
                         if (trimmed === 'done' || trimmed === 'cancel') {
-                            llmService.endSession(session);
+                            // session discarded
                             resolve("Non-document organizing worker finished. Continue with next steps.");
                             return;
                         }
@@ -405,7 +407,7 @@ import { GetCategoriesoffilesofspecificextension, UpdateCategoryNameTool, Finali
                         
                         const allDone = params.extensions.every(ext => workerCompletionStatus[`${params.ProcessId}_${ext}`]);
                         if (allDone) {
-                            llmService.endSession(session);
+                            // session discarded
                             resolve(`Auto-finalized: Non-document organizing worker finished for ${params.extensions.join(', ')}.  You can update the status in todo list for this task`);
                             return;
                         }
@@ -418,7 +420,7 @@ import { GetCategoriesoffilesofspecificextension, UpdateCategoryNameTool, Finali
                 
                 const allDone = params.extensions.every(ext => workerCompletionStatus[`${params.ProcessId}_${ext}`]);
                 if (allDone) {
-                    llmService.endSession(session);
+                    // session discarded
                     resolve(`Auto-finalized: Non-document organizing worker finished for ${params.extensions.join(', ')}. You can update the status in todo list for this task`);
                     return;
                 }
@@ -428,7 +430,7 @@ import { GetCategoriesoffilesofspecificextension, UpdateCategoryNameTool, Finali
     });
 
 
-    const MemoryScratchpadTool = defineChatSessionFunction({
+    const MemoryScratchpadTool = ({
         description: "A secure scratchpad to record your thoughts, specify user constraints, or note down findings. Use 'add_note' to append a note, and 'view' to read all notes.",
         params: {
             type: "object",
@@ -455,7 +457,7 @@ import { GetCategoriesoffilesofspecificextension, UpdateCategoryNameTool, Finali
         }
     });
 
-    const ManageTodoListTool = defineChatSessionFunction({
+    const ManageTodoListTool = ({
         description: "Manages the To-Do list. Use 'create', 'update_task', or 'view' to track files and processing state.",
         params: {
             type: "object",

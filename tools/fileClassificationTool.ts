@@ -1,4 +1,5 @@
 import { LLMService } from "../src/LLMService.js";
+import { EmbeddingService } from "../src/EmbeddingService.js";
 import { ClassificationUtility } from "../src/utils/classificationUtility.js";
 import { FileContentExtractor } from "../src/utils/fileContentExtractor.js";
 import * as path from 'path';
@@ -17,6 +18,7 @@ export class FileClassificationTool {
         }
 
         const llmService = await LLMService.getInstance();
+        const embeddingService = await EmbeddingService.getInstance();
         console.log(`Generating embeddings for ${filePaths.length} files...`);
         
         try {
@@ -26,7 +28,7 @@ export class FileClassificationTool {
             for (const filePath of filePaths) {
                 const content = await FileContentExtractor.extractContent(filePath);
                 contents.push(content);
-                const embedding = await llmService.generateEmbedding(content, "search_document: ");
+                const embedding = await embeddingService.generateEmbedding(content, "search_document: ");
                 embeddings.push(embedding);
             }
             
@@ -72,12 +74,45 @@ export class FileClassificationTool {
 
                             Folder name:`;
 
-                    const folderName = await workerAgent.getWorkerAgentWithFunctionsReact(
-                        sysprompt,
-                        prompt,
-                        {},
-                        "file categorize worker"
-                    );
+                    console.log(sysprompt);
+                    console.log(prompt);
+
+                    const response = await llmService.openai.chat.completions.create({
+                        model: llmService.modelName,
+                        messages: [
+                            { role: "system", content: sysprompt + "\n\nRespond ONLY with a valid JSON object containing a 'category_name' string property." },
+                            { role: "user", content: prompt }
+                        ],
+                        temperature: 0.0,
+                        response_format: {
+                            type: "json_schema",
+                            json_schema: {
+                                name: "category",
+                                strict: true,
+                                schema: {
+                                    type: "object",
+                                    properties: {
+                                        category_name: { type: "string" }
+                                    },
+                                    required: ["category_name"],
+                                    additionalProperties: false
+                                }
+                            }
+                        }
+                    });
+
+                    let rawOutput = response.choices[0]?.message?.content || "";
+                    let folderName = `Category_${label}`;
+                    
+                    try {
+                        const parsed = JSON.parse(rawOutput);
+                        if (parsed.category_name) {
+                            folderName = parsed.category_name;
+                        }
+                    } catch (e) {
+                        // Fallback if model somehow bypassed JSON schema
+                        folderName = rawOutput.replace(/<think>[\s\S]*?<\/think>/g, '').trim() || folderName;
+                    }
                     
                     console.log(`\x1b[36m[LLM Naming]\x1b[0m Cluster ${label} files (${fileNames.length}) -> LLM returned: "${folderName}"`);
                     
@@ -108,13 +143,17 @@ export class FileClassificationTool {
 
                 JSON:`;
 
+
                 try {
-                    const dedupeResult = await workerAgent.getWorkerAgentWithFunctionsReact(
-                        userDedupPrompt,
-                        dedupePrompt,
-                        {},
-                        "Category De-duplication Worker"
-                    );
+                    const response = await llmService.openai.chat.completions.create({
+                        model: llmService.modelName,
+                        messages: [
+                            { role: "system", content: dedupePrompt },
+                            { role: "user", content: userDedupPrompt }
+                        ],
+                    });
+
+                    const dedupeResult = response.choices[0]?.message?.content || "";
 
                     let merges = parseDedupeOutput(dedupeResult).merges;
 
@@ -143,7 +182,9 @@ export class FileClassificationTool {
             throw err;
         } finally {
             // 4. Dispose embedding model to free memory
-            llmService.disposeEmbeddingModel();
+            if (embeddingService) {
+                embeddingService.dispose();
+            }
         }
     }
 }

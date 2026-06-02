@@ -1,119 +1,93 @@
-import type { LlamaJsonSchemaGrammar } from "node-llama-cpp";
+/// <reference types="node" />
+
 import { LLMService } from "../src/LLMService.js";
+import OpenAI from "openai";
 
-class WorkerAgent{
-    public async getWorkerAgentWithGrammar<T = string>(systemPrompt : string, userPrompt : string, grammar? : LlamaJsonSchemaGrammar<any>, workerName? : string) : Promise<T | string> {
-        const llm = await LLMService.getInstance();
-        const llmSession = await llm.createSession(systemPrompt);   
-        
-        try {
-            let reply: string;
-            if (grammar) {
-                reply = await llmSession.prompt(userPrompt, {
-                    grammar,
-                    onResponseChunk(chunk) {
-                        const isThoughtSegment = chunk.type === "segment" &&
-                            chunk.segmentType === "thought";
-                        const isCommentSegment = chunk.type === "segment" &&
-                            chunk.segmentType === "comment";
-                        
-                        if (chunk.type === "segment" && chunk.segmentStartTime != null)
-                            process.stdout.write(` [segment start: ${chunk.segmentType}] `);
+export class OpenAISession {
+    public messages: OpenAI.Chat.Completions.ChatCompletionMessageParam[] = [];
+    
+    constructor(private llm: LLMService, systemPrompt: string) {
+        this.messages.push({ role: "system", content: systemPrompt });
+    }
 
-                        process.stdout.write(chunk.text);
+    public async prompt(userPrompt: string | OpenAI.Chat.Completions.ChatCompletionContentPart[], options: { functions?: Record<string, any> } = {}): Promise<string> {
+        this.messages.push({ role: "user", content: userPrompt });
 
-                        if (chunk.type === "segment" && chunk.segmentEndTime != null)
-                            process.stdout.write(` [segment end: ${chunk.segmentType}] `);
+        let tools: OpenAI.Chat.Completions.ChatCompletionTool[] = [];
+        if (options.functions) {
+            tools = Object.entries(options.functions).map(([name, tool]) => ({
+                type: "function",
+                function: {
+                    name,
+                    description: tool.description,
+                    parameters: tool.params || tool.parameters
+                }
+            }));
+        }
+
+        while (true) {
+            // @ts-ignore - The SDK expects a specific type for 'tools' array if it is present. We ignore to allow passing our manually mapped list or undefined when empty.
+            const response = await this.llm.openai.chat.completions.create({
+                model: this.llm.modelName,
+                messages: this.messages,
+                tools: tools.length > 0 ? (tools as any) : undefined,
+                temperature: 0.6,
+            });
+
+            const msg = response.choices[0]?.message;
+            if (!msg) break;
+            this.messages.push(msg);
+
+             if (msg.content) {
+                process.stdout.write(`\n\x1b[92mAssistant:\x1b[0m ${msg.content}\n`);
+            }
+
+            if (msg.tool_calls && msg.tool_calls.length > 0) {
+                for (const toolCall of msg.tool_calls) {
+                    const funcCall = (toolCall as any).function;
+                    if (!funcCall) continue;
+                    
+                    process.stdout.write(`\n\x1b[95m[Tool Call]\x1b[0m ${funcCall.name}(${funcCall.arguments})\n`);
+                    const funcName = funcCall.name;
+                    const args = JSON.parse(funcCall.arguments);
+                    
+                    if (options.functions && options.functions[funcName] && options.functions[funcName].handler) {
+                        try {
+                            const result = await options.functions[funcName].handler(args);
+                            this.messages.push({
+                                role: "tool",
+                                tool_call_id: toolCall.id,
+                                content: typeof result === 'string' ? result : JSON.stringify(result)
+                            });
+                        } catch (e: any) {
+                            this.messages.push({
+                                role: "tool",
+                                tool_call_id: toolCall.id,
+                                content: `Error: ${e.message}`
+                            });
+                        }
+                    } else {
+                        this.messages.push({
+                            role: "tool",
+                            tool_call_id: toolCall.id,
+                            content: `Error: Tool ${funcName} not found.`
+                        });
                     }
-                });
+                }
             } else {
-                reply = await llmSession.prompt(userPrompt);
+                break;
             }
-
-            let parsedResponse: T | string = reply;
-            if (grammar) {
-                parsedResponse = grammar.parse(reply) as T;
-            }
-
-            llm.getSessionContextUsage(llmSession, workerName ? workerName : "workerAgent");
-            return parsedResponse;
-        } finally {
-            llm.endSession(llmSession);
         }
+        
+        return this.messages[this.messages.length - 1]?.content as string;
     }
+}
 
-    public async getWorkerAgentWithFunctions(systemPrompt : string, userPrompt : string, toolFunction : Record<string, any>, workerName? : string) : Promise<string> {
+class WorkerAgent {
+    public async getWorkerAgentWithFunctions(systemPrompt: string, userPrompt: string | OpenAI.Chat.Completions.ChatCompletionContentPart[], toolFunction: Record<string, any>, workerName?: string): Promise<string> {
         const llm = await LLMService.getInstance();
-        const llmSession = await llm.createSession(systemPrompt);
-
-        try {
-            const reply = await llmSession.prompt(userPrompt, {
-                functions: toolFunction,
-                onResponseChunk(chunk) {
-                        const isThoughtSegment = chunk.type === "segment" &&
-                            chunk.segmentType === "thought";
-                        const isCommentSegment = chunk.type === "segment" &&
-                            chunk.segmentType === "comment";
-                        
-                        if (chunk.type === "segment" && chunk.segmentStartTime != null)
-                            process.stdout.write(` [segment start: ${chunk.segmentType}] `);
-
-                        process.stdout.write(chunk.text);
-
-                        if (chunk.type === "segment" && chunk.segmentEndTime != null)
-                            process.stdout.write(` [segment end: ${chunk.segmentType}] `);
-                    }
-            });
-
-            llm.getSessionContextUsage(llmSession, workerName ? workerName : "workerAgent");
-            return reply;
-        } finally {
-            llm.endSession(llmSession);
-        }
-    }
-
-    public async getWorkerAgentWithFunctionsReact(
-        systemPrompt: string,
-        userPrompt: string,
-        toolFunction: Record<string, any>,
-        workerName?: string,
-        maxThoughtTokens: number = 0
-    ): Promise<string> {
-        const llm = await LLMService.getInstance();
-        const llmSession = await llm.createSession(systemPrompt);
-
-        const label = workerName ?? "Worker";
-        console.log(`\x1b[95m[${label}]\x1b[0m Starting ReAct loop...`);
-
-        try {
-            const reply = await llmSession.prompt(userPrompt, {
-                functions: toolFunction,
-                budgets: {
-                    thoughtTokens: maxThoughtTokens
-                },
-                onResponseChunk(chunk) {
-                        const isThoughtSegment = chunk.type === "segment" &&
-                            chunk.segmentType === "thought";
-                        const isCommentSegment = chunk.type === "segment" &&
-                            chunk.segmentType === "comment";
-                        
-                        if (chunk.type === "segment" && chunk.segmentStartTime != null)
-                            process.stdout.write(` [segment start: ${chunk.segmentType}] `);
-
-                        process.stdout.write(chunk.text);
-
-                        if (chunk.type === "segment" && chunk.segmentEndTime != null)
-                            process.stdout.write(` [segment end: ${chunk.segmentType}] `);
-                    }
-            });
-
-            const usage = llm.getSessionContextUsage(llmSession, label);
-            console.log(`\x1b[95m[${label}]\x1b[0m Done. Tokens used: ${usage.usedTokens}/${usage.totalTokens}`);
-
-            return reply;
-        } finally {
-            llm.endSession(llmSession);
-        }
+        const session = new OpenAISession(llm, systemPrompt);
+        return await session.prompt(userPrompt, { functions: toolFunction });
     }
 }
 

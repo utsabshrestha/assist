@@ -3,11 +3,12 @@ import { fileOrgMastertools } from '../tools/fileOrgTool.js';
 import { LLMService } from './LLMService.js';
 import { fileOrgMasterAgentSystemPrompt } from './prompt/fileAgent.js';
 import { fileAgentRecord, fileAgentState } from './state/fileAgentState.js';
+import { OpenAISession } from '../tools/workerAgent.js';
 
 class FileAgent {
     readonly path: string = process.env.WORKSPACE_PATH ?? "/Users/utsabshrestha/code/download";
     public async chatLoop() {
-        console.log("\n\x1b[93m[System]\x1b[0m Loading node-llama-cpp (Apple Metal GPU enabled automatically)...");
+        console.log("\n\x1b[93m[System]\x1b[0m Loading LLM Server via OpenAI SDK...");
         
         const state = new fileAgentState();
         const processId = crypto.randomUUID();
@@ -16,7 +17,7 @@ class FileAgent {
         
         const FileOrganizeSystemPrompt = fileOrgMasterAgentSystemPrompt(processId);
         const llm = await LLMService.getInstance();
-        const llmSession = await llm.createSession(FileOrganizeSystemPrompt);
+        const session = new OpenAISession(llm, FileOrganizeSystemPrompt);
 
         console.log("\n\x1b[92m=== File Organization Agent ===\x1b[0m");
         console.log("Agent is ready. Describe how you want to manage your files.");
@@ -32,35 +33,11 @@ class FileAgent {
 
             if (userInput.toLowerCase() === 'exit' || userInput.toLowerCase() === 'quit') break;
 
-
-            process.stdout.write("\x1b[96mAgent:\x1b[0m ");
-            await llmSession.prompt(userInput, {
-                functions: fileOrgMastertools,
-                temperature: 0.6,
-                topP: 0.9,
-                topK: 20,
-                // onTextChunk: (chunk) => {
-                //     process.stdout.write(chunk);
-                // },
-                onResponseChunk(chunk) {
-                    const isThoughtSegment = chunk.type === "segment" &&
-                        chunk.segmentType === "thought";
-                    const isCommentSegment = chunk.type === "segment" &&
-                        chunk.segmentType === "comment";
-                    
-                    if (chunk.type === "segment" && chunk.segmentStartTime != null)
-                        process.stdout.write(` [segment start: ${chunk.segmentType}] `);
-
-                    process.stdout.write(chunk.text);
-
-                    if (chunk.type === "segment" && chunk.segmentEndTime != null)
-                        process.stdout.write(` [segment end: ${chunk.segmentType}] `);
-                }
+            await session.prompt(userInput, {
+                functions: fileOrgMastertools
             });
             console.log("\n");
         }
-        llm.endSession(llmSession);
-        rl.close();
     }
 }
 

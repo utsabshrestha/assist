@@ -1,11 +1,11 @@
 import * as path from 'path';
-import { defineChatSessionFunction } from 'node-llama-cpp';
+// import { defineChatSessionFunction } from 'node-llama-cpp';
 import { fileAgentRecord } from '../src/state/fileAgentState.js';
 import { FileClassificationTool } from './fileClassificationTool.js';
 
 export const workerCompletionStatus: Record<string, boolean> = {};
 
-export const GetCategoriesoffilesofspecificextension = defineChatSessionFunction({
+export const GetCategoriesoffilesofspecificextension = ({
     description: "Analyzes the contents of files for a given extension, generating embeddings and using an AI clustering algorithm to automatically group them into highly descriptive category folder names. Returns a dictionary mapping the generated folder name to a brief list of the top 3 files in that category to save context. Use this to automatically generate folder names based on actual file content.",
     params: {
         type: "object",
@@ -70,7 +70,7 @@ export const GetCategoriesoffilesofspecificextension = defineChatSessionFunction
     }
 });
 
-export const UpdateCategoryNameTool = defineChatSessionFunction({
+export const UpdateCategoryNameTool = ({
     description: "Updates the category name for files that currently belong to an old category. Use this when the user wants to rename a proposed category before finalizing folders.",
     params: {
         type: "object",
@@ -103,7 +103,7 @@ export const UpdateCategoryNameTool = defineChatSessionFunction({
     }
 });
 
-export const FinalizeThefolderforthefilesforEachExtensions = defineChatSessionFunction({
+export const FinalizeThefolderforthefilesforEachExtensions = ({
      description: "This tool will finalize the folder for the files types you have passed.",
     params: {
         type: "object",
@@ -176,7 +176,7 @@ export const FinalizeThefolderforthefilesforEachExtensions = defineChatSessionFu
                 }
             }
 
-            workerCompletionStatus[`${params.ProcessId}_${ext}`] = true;
+            workerCompletionStatus[`${params.ProcessId}_${ext.replaceAll(".", "")}`] = true;
         }
 
         return `Successfully finalized destination folder for ${updatedCount} files across extensions: ${exts.join(', ')}.`;

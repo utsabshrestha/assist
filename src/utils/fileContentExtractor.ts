@@ -84,8 +84,8 @@ export class FileContentExtractor {
             content = FileContentExtractor.extractTextFromParsedObject(content);
         }
         content = (content || '').replace(/\s+/g, ' ').trim();
-        if (content.length > 1000) {
-            content = content.substring(0, 1000) + '...';
+        if (content.length > 600) {
+            content = content.substring(0, 600) + '...';
         }
 
         return `Title: ${baseName}\n\nSnippet: ${content}`;

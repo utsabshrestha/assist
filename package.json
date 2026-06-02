@@ -23,12 +23,15 @@
     "minimatch": "^10.2.5",
     "node-llama-cpp": "^3.18.1",
     "officeparser": "^6.1.1",
+    "openai": "^6.39.1",
     "pdf-parse": "^1.1.1",
+    "sharp": "^0.34.5",
     "xlsx": "^0.18.5"
   },
   "devDependencies": {
-    "@types/node": "^25.6.0",
+    "@types/node": "^25.9.1",
     "@types/pdf-parse": "^1.1.5",
+    "@types/sharp": "^0.31.1",
     "ts-node": "^10.9.2",
     "tsx": "^4.21.0",
     "typescript": "^6.0.2"
