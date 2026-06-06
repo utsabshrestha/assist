@@ -2,8 +2,81 @@ import * as path from 'path';
 // import { defineChatSessionFunction } from 'node-llama-cpp';
 import { fileAgentRecord } from '../src/state/fileAgentState.js';
 import { FileClassificationTool } from './fileClassificationTool.js';
+import { ImageClassificationTool } from './imageClassificationTool.js';
 
 export const workerCompletionStatus: Record<string, boolean> = {};
+
+export const GetCategoriesOfImages = ({
+    description: "Analyzes image files visually using the LLM vision capability. For each image, it generates a text description, embeds it, and clusters them to automatically produce descriptive category folder names. Returns a dictionary mapping the generated folder name to a brief list of the top 3 files in that category. Use this for image extensions like .jpg, .png, .jpeg, .webp, .gif.",
+    params: {
+        type: "object",
+        properties: {
+            path: {
+                type: "string",
+                description: "Absolute path of the folder to analyze."
+            },
+            ProcessId: {
+                type: "string",
+                description: "The unique process id for this session, provided by the user."
+            },
+            extensions: {
+                type: "array",
+                items: { type: "string" },
+                description: "Array of image extensions to categorize together (e.g. ['.jpg', '.png', '.jpeg'])."
+            }
+        },
+        required: ["path", "ProcessId", "extensions"]
+    },
+    async handler(params): Promise<string> {
+        console.log(`\x1b[95m[Worker Tool]\x1b[0m GetCategoriesOfImages → ${params.path} for ${params.extensions.join(', ')}`);
+        try {
+            const state = fileAgentRecord[params.ProcessId];
+            if (!state) return "Error: Invalid ProcessId.";
+            if (!state.workspacePath) return "Error: workspacePath not set in state.";
+
+            state.workspacePath = params.path;
+
+            // Collect all image files across the requested extensions
+            const allImageFiles: string[] = [];
+            for (const ext of params.extensions) {
+                const files = state.fileByExtension[ext];
+                if (files && files.length > 0) {
+                    const unprocessed = files.filter(x => x.status === false);
+                    for (const file of unprocessed) {
+                        allImageFiles.push(path.join(state.workspacePath, file.fileName));
+                    }
+                }
+            }
+
+            if (allImageFiles.length === 0) return "No unprocessed image files found for these extensions.";
+
+            // Delegate to the vision-based classification pipeline
+            const categorized = await ImageClassificationTool.clusterAndNameImages(allImageFiles);
+
+            // Update the category property of the files in the state
+            for (const [folderName, fileNames] of Object.entries(categorized)) {
+                for (const fileName of fileNames) {
+                    if (state.fileRecord[fileName]) {
+                        state.fileRecord[fileName].category = folderName;
+                    }
+                }
+            }
+
+            // Prepare a summarized payload (max 3 files per category) to save tokens
+            const categorizedSummary: Record<string, string[]> = {};
+            for (const [folderName, fileNames] of Object.entries(categorized)) {
+                categorizedSummary[folderName] = fileNames.slice(0, 3);
+                if (fileNames.length > 3) {
+                    categorizedSummary[folderName].push(`...and ${fileNames.length - 3} more files`);
+                }
+            }
+
+            return JSON.stringify(categorizedSummary);
+        } catch (e: any) {
+            return `Error during image analysis: ${e.message}`;
+        }
+    }
+});
 
 export const GetCategoriesoffilesofspecificextension = ({
     description: "Analyzes the contents of files for a given extension, generating embeddings and using an AI clustering algorithm to automatically group them into highly descriptive category folder names. Returns a dictionary mapping the generated folder name to a brief list of the top 3 files in that category to save context. Use this to automatically generate folder names based on actual file content.",
