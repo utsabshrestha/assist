@@ -3,7 +3,7 @@ import { EmbeddingService } from "../src/EmbeddingService.js";
 import { ClassificationUtility } from "../src/utils/classificationUtility.js";
 import { FileContentExtractor } from "../src/utils/fileContentExtractor.js";
 import * as path from 'path';
-import { workerAgent } from "./workerAgent.js";
+import { workerAgent } from "../src/workerAgent.js";
 import { LlamaJsonSchemaGrammar } from "node-llama-cpp";
 import { dedupCategoryPrompt, fileCategorizationPrompt } from "../src/prompt/fileAgent.js";
 

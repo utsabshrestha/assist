@@ -64,6 +64,37 @@ export class FileContentExtractor {
                 const officeParser = officeParserM.default || officeParserM;
                 // parseOffice is async
                 content = await officeParser.parseOffice(filePath);
+            } else if (ext === '.epub') {
+                const { EPub } = await import('epub2');
+                const epub = new EPub(filePath);
+                await new Promise<void>((resolve, reject) => {
+                    epub.on('end', () => resolve());
+                    epub.on('error', (err) => reject(err));
+                    epub.parse();
+                });
+                
+                if (epub.flow && epub.flow.length > 0) {
+                    const firstChapter = epub.flow[0];
+                    if (firstChapter && firstChapter.id) {
+                        const rawText = await new Promise<string>((resolve, reject) => {
+                            epub.getChapter(firstChapter.id, (err, text) => {
+                                if (err) reject(err);
+                                else resolve(text);
+                            });
+                        });
+                        content = rawText.replace(/<[^>]*>/g, ' ');
+                    }
+                }
+            } else if (ext === '.html' || ext === '.htm' || ext === '.xml') {
+                const fd = await fs.open(filePath, 'r');
+                try {
+                    const buffer = Buffer.alloc(2048);
+                    const { bytesRead } = await fd.read(buffer, 0, 2048, 0);
+                    const rawText = buffer.toString('utf-8', 0, bytesRead);
+                    content = rawText.replace(/<[^>]*>/g, ' ');
+                } finally {
+                    await fd.close();
+                }
             } else if (ext === '.txt' || ext === '.md' || ext === '.json') {
                 // Read only the first 2048 bytes to save memory (preventing huge memory spikes on large logs/json)
                 const fd = await fs.open(filePath, 'r');

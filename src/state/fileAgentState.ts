@@ -1,9 +1,11 @@
 export type TodoStatus = 'not-started' | 'in-progress' | 'completed' | 'blocked' | 'failed';
+export type AgentPhase = 'planning' | 'categorization' | 'execution' | 'done';
 export interface TodoItem {
     id: number;
     title: string;
     status: TodoStatus;
     notes?: string;
+    extension: string []
 }
 
 export class fileAgentState {
@@ -12,6 +14,7 @@ export class fileAgentState {
     public filesCount: number = 0;
     public extensions: string[] = [];
     public lastReadInd: number = 0;
+    public phase: AgentPhase = 'planning';
     public processId: string = "";
     public planConfirmed: boolean = false;
     public fileRecord : Record<string, fileStatus> = {};
@@ -43,7 +46,7 @@ export class fileStatus{
 
     public fileName : string = "";
     public filePath : string = "";
-    public status : boolean = false;
+    public planConfirmed : boolean = false;
     public fileSize : number = 0;
     public ext : string = "";
     public category : string = "";

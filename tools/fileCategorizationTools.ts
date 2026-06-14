@@ -41,7 +41,7 @@ export const GetCategoriesOfImages = ({
             for (const ext of params.extensions) {
                 const files = state.fileByExtension[ext];
                 if (files && files.length > 0) {
-                    const unprocessed = files.filter(x => x.status === false);
+                    const unprocessed = files.filter(x => x.planConfirmed === false);
                     for (const file of unprocessed) {
                         allImageFiles.push(path.join(state.workspacePath, file.fileName));
                     }
@@ -108,11 +108,10 @@ export const GetCategoriesoffilesofspecificextension = ({
             const files  = state.fileByExtension[params.extension]
             if (files == undefined || files.length < 0) return "No files found with this extension. Report this to User.";
             
-            state.workspacePath = params.path;
             state.lastReadInd = 0;
 
             // Extract unmatched file paths to be grouped (using actual absolute path in fileStatus model)
-            const filePaths = files.filter(x => x.status == false).map(x => path.join(state.workspacePath, x.fileName));
+            const filePaths = files.filter(x => x.planConfirmed == false).map(x => path.join(state.workspacePath, x.fileName));
             if (filePaths.length === 0) return "All files of this extension are already processed.";
 
             // Delegate to the new AI Clustering logic using embeddings & AgglomerativeClustering
@@ -186,9 +185,8 @@ export const FinalizeThefolderforthefilesforEachExtensions = ({
                 description: "An object containing extensions, category, and folder structure.",
                 properties: {
                     extensions: {
-                        type: "array",
-                        items: { type: "string" },
-                        description: "Array of extensions being finalized (e.g. ['.jpg', '.png'])."
+                        type: "string",
+                        description: "Extension being finalized, eg .pdf, .docx, .txt"
                     },
                     folderStructure: {
                         type: "array",
@@ -224,6 +222,86 @@ export const FinalizeThefolderforthefilesforEachExtensions = ({
         const folderStructure = params.json.folderStructure;
         
         if (!exts || exts.length === 0) {
+            return "Error: No extensions provided in the json object. Please report to the User.";
+        }
+
+        let updatedCount = 0;
+        
+        if (!state.fileByExtension[exts])
+                return "The extension you have provided is not available in our memory. Please report to the User.";
+
+        // Iterate through every file of this extension in the global state
+        for (const file of state.fileByExtension[exts]) {
+            // Find mapping by exact category match, generic default match, or fallback to the first folder provided if no category exists
+            const mapping = folderStructure.find((f: any) => f.category === file.category) 
+                            || folderStructure.find((f: any) => !f.category || f.category.trim() === "")
+                            || (folderStructure.length === 1 ? folderStructure[0] : null);
+            
+            if (mapping && mapping.folder) {
+                const resolvedTarget = path.resolve(mapping.folder);
+                if (!resolvedTarget.startsWith(path.resolve(state.workspacePath))) {
+                    return `Error: The folder path '${mapping.folder}' is outside the authorized workspace path '${state.workspacePath}'. All folders must be strictly inside the workspace. Please report to the User.`;
+                }
+                file.folderPath = resolvedTarget;
+                file.planConfirmed = true;
+                updatedCount++;
+            }
+        }
+
+        workerCompletionStatus[`${params.ProcessId}_${exts.replaceAll(".", "")}`] = true;
+
+        return `Successfully finalized destination folder for ${updatedCount} files across extensions: ${exts}.`;
+    }
+});
+
+export const FinalizeThefolderforImages = ({
+     description: "This tool will finalize the folder for the files types you have passed.",
+    params: {
+        type: "object",
+        properties: {
+            json: {
+                type: "object",
+                description: "An object containing extensions, category, and folder structure.",
+                properties: {
+                    extensions: {
+                        type: "array",
+                        items: { type: "string" },
+                        description: "Array of extensions being finalized (e.g. ['.jpg', '.png'])."
+                    },
+                    folderStructure: {
+                        type: "array",
+                        items: {
+                            type: "object",
+                            properties: {
+                                category: {
+                                    type : "string",
+                                    description: "category name"
+                                },
+                                folder: {
+                                    type: "string",
+                                    description: "absolute path of the folder to be created for this category."
+                                }
+                            }
+                        }
+                    }
+                }
+            },
+            ProcessId: {
+                type: "string",
+                description: "The unique process id for this session, provided by the user."
+            }
+        },
+        required: ["json", "ProcessId"]
+    },
+    async handler(params): Promise<string> {
+        console.log(`\x1b[95m[Worker Tool]\x1b[0m FinalizeThefolderforImages → ${params.ProcessId}`);
+        const state = fileAgentRecord[params.ProcessId];
+        if (!state) return "Error: Invalid ProcessId.";
+
+        const exts = params.json.extensions;
+        const folderStructure = params.json.folderStructure;
+        
+        if (!exts || exts.length === 0) {
             return "Error: No extensions provided in the json object.";
         }
 
@@ -245,6 +323,7 @@ export const FinalizeThefolderforthefilesforEachExtensions = ({
                         return `Error: The folder path '${mapping.folder}' is outside the authorized workspace path '${state.workspacePath}'. All folders must be strictly inside the workspace.`;
                     }
                     file.folderPath = resolvedTarget;
+                    file.planConfirmed = true;
                     updatedCount++;
                 }
             }

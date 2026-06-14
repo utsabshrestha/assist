@@ -1,6 +1,6 @@
 /// <reference types="node" />
 
-import { LLMService } from "../src/LLMService.js";
+import { LLMService } from "./LLMService.js";
 import OpenAI from "openai";
 
 export class OpenAISession {
@@ -54,11 +54,18 @@ export class OpenAISession {
                     if (options.functions && options.functions[funcName] && options.functions[funcName].handler) {
                         try {
                             const result = await options.functions[funcName].handler(args);
+                            const toolResultContent = typeof result === 'string' ? result : JSON.stringify(result);
                             this.messages.push({
                                 role: "tool",
                                 tool_call_id: toolCall.id,
-                                content: typeof result === 'string' ? result : JSON.stringify(result)
+                                content: toolResultContent
                             });
+
+                            // Pipeline sentinel: a handoff tool signals we should exit this loop
+                            // and pass control to the next pipeline agent.
+                            if (toolResultContent.startsWith("__HANDOFF_")) {
+                                return toolResultContent;
+                            }
                         } catch (e: any) {
                             this.messages.push({
                                 role: "tool",
