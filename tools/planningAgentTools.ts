@@ -193,17 +193,17 @@ const ManageTodoListTool = ({
                         id: { type: "number" },
                         title: { type: "string", description: "Task description, e.g. 'Organize .pdf files'" },
                         status: { type: "string", enum: ["not-started", "in-progress", "completed", "failed", "blocked"] },
-                        notes: { type: "string", description: "Include list of extensions for the task." },
+                        notes: { type: "string", description: "Any notes for this task." },
                         extensionList: { 
                             type: "array", 
-                            description: "List of extension to be organized.",
+                            description: "Include list of extensions for the task to be organized. eg : ['.pdf', '.docx', '.txt']",
                             itesm: {
                                 type: "string",
                                 description: "extension to be organized, eg: .pdf"
                             }
                         }
                     },
-                    required: ["id", "title", "status", "notes"]
+                    required: ["id", "title", "status", "extensionList"]
                 }
             },
             taskId: { type: "number", description: "Used ONLY when action is 'update_task'. The ID of the task to update." },

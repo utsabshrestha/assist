@@ -5,7 +5,7 @@ export interface TodoItem {
     title: string;
     status: TodoStatus;
     notes?: string;
-    extension: string []
+    extensionList: string []
 }
 
 export class fileAgentState {

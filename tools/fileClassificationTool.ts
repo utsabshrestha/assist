@@ -3,9 +3,9 @@ import { EmbeddingService } from "../src/EmbeddingService.js";
 import { ClassificationUtility } from "../src/utils/classificationUtility.js";
 import { FileContentExtractor } from "../src/utils/fileContentExtractor.js";
 import * as path from 'path';
-import { workerAgent } from "../src/workerAgent.js";
+import { OpenAISession, workerAgent } from "../src/workerAgent.js";
 import { LlamaJsonSchemaGrammar } from "node-llama-cpp";
-import { dedupCategoryPrompt, fileCategorizationPrompt } from "../src/prompt/fileAgent.js";
+import { dedupCategoryPrompt, fileCategorizationPrompt, nonDocumentCategorizationPrompt } from "../src/prompt/fileAgent.js";
 
 export class FileClassificationTool {
     
@@ -187,6 +187,82 @@ export class FileClassificationTool {
             }
         }
     }
+
+    public static async GetNonDocumentExtensionCategorized(extensions: string[]): Promise<Record<string, string[]>> {
+        const llmService = await LLMService.getInstance();
+        
+        const response = await llmService.openai.chat.completions.create({
+            model: llmService.modelName,
+            messages: [
+                { 
+                    role: "system", 
+                    content: nonDocumentCategorizationPrompt(extensions) + "\n\nRespond ONLY with a valid JSON matching the requested schema." 
+                },
+                {
+                    role: "user",
+                    content: "Start categorizing these extensions."
+                }
+            ],
+            temperature: 0.1,
+            response_format: {
+                type: "json_schema",
+                json_schema: {
+                    name: "category_structure",
+                    strict: true,
+                    schema: {
+                        type: "object", // Root must be an object
+                        properties: {
+                            categories: {
+                                type: "array",
+                                items: {
+                                    type: "object",
+                                    properties: {
+                                        category: { type: "string", description: "Category name." },
+                                        extensions: { 
+                                            type: "array",
+                                            items: {
+                                                type: "string",
+                                                description: "Extension that falls into this category. Example: '.mp4'"
+                                            },
+                                            description: "List of extensions that fall into this category." // Fixed typo
+                                        }
+                                    },
+                                    required: ["category", "extensions"], // Fixed missing required properties
+                                    additionalProperties: false
+                                }
+                            }
+                        },
+                        required: ["categories"],
+                        additionalProperties: false
+                    }
+                }
+            }
+        });
+
+        const output: Record<string, string[]> = {};
+        let rawOutput = response.choices[0]?.message?.content || "";
+
+        // Strip any <think> tags if a reasoning model (like deepseek-reasoner) was used
+        rawOutput = rawOutput.replace(/<think>[\s\S]*?<\/think>/g, '').trim();
+
+        try {
+            const parsed = JSON.parse(rawOutput);
+            
+            // Map the schema array into the desired Record<string, string[]> format
+            if (parsed && Array.isArray(parsed.categories)) {
+                for (const item of parsed.categories) {
+                    if (item.category && Array.isArray(item.extensions)) {
+                        output[item.category] = item.extensions;
+                    }
+                }
+            }
+        } catch (error) {
+            console.error("Failed to parse LLM response JSON:", error);
+            // Handle fallback or rethrow depending on your application needs
+        }
+
+        return output;
+    }
 }
 function parseDedupeOutput(raw: string): { merges: {source: string, target: string}[] } {
   // Extract first JSON object found, even if model adds trailing text
@@ -206,3 +282,4 @@ function parseDedupeOutput(raw: string): { merges: {source: string, target: stri
     return { merges: [] };
   }
 }
+

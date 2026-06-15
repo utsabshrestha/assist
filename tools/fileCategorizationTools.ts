@@ -3,6 +3,7 @@ import * as path from 'path';
 import { fileAgentRecord } from '../src/state/fileAgentState.js';
 import { FileClassificationTool } from './fileClassificationTool.js';
 import { ImageClassificationTool } from './imageClassificationTool.js';
+import { stat } from 'fs';
 
 export const workerCompletionStatus: Record<string, boolean> = {};
 
@@ -332,5 +333,167 @@ export const FinalizeThefolderforImages = ({
         }
 
         return `Successfully finalized destination folder for ${updatedCount} files across extensions: ${exts.join(', ')}.`;
+    }
+});
+
+export const FinalizeThefolderforNonDocuments = ({
+     description: "This tool will finalize the folder for the files types you have passed.",
+    params: {
+        type: "object",
+        properties: {
+            json: {
+                type: "object",
+                description: "An object containing category, and folder structure.",
+                properties: {
+                    folderStructure: {
+                        type: "array",
+                        items: {
+                            type: "object",
+                            properties: {
+                                category: {
+                                    type : "string",
+                                    description: "category name"
+                                },
+                                folder: {
+                                    type: "string",
+                                    description: "absolute path of the folder to be created for this category."
+                                }
+                            }
+                        }
+                    }
+                }
+            },
+            ProcessId: {
+                type: "string",
+                description: "The unique process id for this session, provided by the user."
+            },
+            TaskId: {
+                type: "number",
+                description: "Task id of this task."
+            }
+        },
+        required: ["json", "ProcessId"]
+    },
+    async handler(params): Promise<string> {
+        console.log(`\x1b[95m[Worker Tool]\x1b[0m FinalizeThefolderforImages → ${params.ProcessId}`);
+        const state = fileAgentRecord[params.ProcessId];
+        if (!state) return "Error: Invalid ProcessId.";
+
+        const extensionsList = state.todoList.filter(task => task.id == params.TaskId).flatMap(todo => todo.extensionList);
+        const folderStructure = params.json.folderStructure;
+        
+        if (!extensionsList || extensionsList.length === 0) {
+            return "Error: No extensions provided for this task id.";
+        }
+
+        let updatedCount = 0;
+        
+        for (const ext of extensionsList) {
+            if (!state.fileByExtension[ext]) continue;
+
+            // Iterate through every file of this extension in the global state
+            for (const file of state.fileByExtension[ext]) {
+                // Find mapping by exact category match, generic default match, or fallback to the first folder provided if no category exists
+                const mapping = folderStructure.find((f: any) => f.category === file.category) 
+                             || folderStructure.find((f: any) => !f.category || f.category.trim() === "")
+                             || (folderStructure.length === 1 ? folderStructure[0] : null);
+                
+                if (mapping && mapping.folder) {
+                    const resolvedTarget = path.resolve(mapping.folder);
+                    if (!resolvedTarget.startsWith(path.resolve(state.workspacePath))) {
+                        return `Error: The folder path '${mapping.folder}' is outside the authorized workspace path '${state.workspacePath}'. All folders must be strictly inside the workspace.`;
+                    }
+                    file.folderPath = resolvedTarget;
+                    file.planConfirmed = true;
+                    updatedCount++;
+                }
+            }
+
+            workerCompletionStatus[`${params.ProcessId}_${ext.replaceAll(".", "")}`] = true;
+        }
+
+        return `Successfully finalized destination folder.`;
+    }
+});
+
+
+export const GetCategoriesForNonDocuments = {
+    description: "Analyzes the extensions and give them a categorical name.",
+    params: {
+        type: "object",
+        properties: {
+            ProcessId: {
+                type: "string",
+                description: "The unique process id for this session, provided by the user."
+            },
+            TaskId: {
+                type: "number",
+                description: "Task id of this task."
+            }
+        },
+        required: ["ProcessId", "TaskId"]
+    },
+    async handler(params: { ProcessId: string; extensions: string[] }): Promise<string> {
+        console.log(`\x1b[95m[Worker Tool]\x1b[0m GetCategoriesForNonDocuments → ${params.ProcessId} for Task Id : ${params.TaskId}`);
+        try {
+            const state = fileAgentRecord[params.ProcessId];
+            if (!state) return "Error: Invalid ProcessId.";
+            if (!state.workspacePath) return "Error: workspacePath not set in state.";
+            const extensionsList = state.todoList.filter(task => task.id == params.TaskId).flatMap(todo => todo.extensionList);
+
+            const categorized = await FileClassificationTool.GetNonDocumentExtensionCategorized(extensionsList);
+            const categoriesList : string[] = [];
+            // Update the category property of the files in the state
+            for (const [category, extensions] of Object.entries(categorized)) {
+                categoriesList.push(category);
+                for (const ext of extensions) {
+                    if (ext === undefined) continue;
+                    
+                    // Ensure the array exists before iterating
+                    if (state.fileByExtension[ext]) {
+                        for (const file of state.fileByExtension[ext]) {
+                            file.category = category;
+                        }
+                    }
+                }
+            }
+
+            return JSON.stringify(categoriesList);
+        } catch (e: any) {
+            return `Error during non-document categorization: ${e.message}`;
+        }
+    }
+};
+
+export const UpdateCategoryNameForNonDocumentsTool = ({
+    description: "Updates the category name from old category to new category name. Use this when the user wants to rename a proposed category before finalizing folders.",
+    params: {
+        type: "object",
+        properties: {
+            ProcessId: { type: "string" },
+            TaskId: { type: "number", description: "Task id of the task you are working on" },
+            oldCategoryName: { type: "string", description: "The existing category name to be changed." },
+            newCategoryName: { type: "string", description: "The new category name requested by the user." }
+        },
+        required: ["ProcessId", "extension", "oldCategoryName", "newCategoryName"]
+    },
+    async handler(params): Promise<string> {
+        console.log(`\x1b[95m[Worker Tool]\x1b[0m UpdateCategoryNameTool -> '${params.oldCategoryName}' to '${params.newCategoryName}'`);
+        const state = fileAgentRecord[params.ProcessId];
+        if (!state) return "Error: Invalid ProcessId.";
+        
+        const extensionsList = state.todoList.filter(task => task.id == params.TaskId).flatMap(todo => todo.extensionList);
+
+        const filesWithOldCategory = state.fileListData.filter(file => file.category == params.oldCategoryName);
+
+        let updatedCount = 0;
+        for (const file of filesWithOldCategory) {
+            if (extensionsList.includes(file.ext)) {
+                file.category = params.newCategoryName;
+                updatedCount++;
+            }
+        }
+
+        return `Successfully updated category name from '${params.oldCategoryName}' to '${params.newCategoryName}'`;
     }
 });

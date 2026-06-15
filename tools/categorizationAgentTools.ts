@@ -16,7 +16,7 @@ import * as readline from 'readline';
 import { fileAgentRecord, fileAgentState, fileStatus } from '../src/state/fileAgentState.js';
 import { LLMService } from '../src/LLMService.js';
 import { documentWorkerAgentSystemPrompt, nonDocumentWorkerAgentSystemPrompt, imageWorkerAgentSystemPrompt } from '../src/prompt/fileAgent.js';
-import { GetCategoriesoffilesofspecificextension, GetCategoriesOfImages, UpdateCategoryNameTool, FinalizeThefolderforthefilesforEachExtensions, workerCompletionStatus, FinalizeThefolderforImages } from './fileCategorizationTools.js';
+import { GetCategoriesoffilesofspecificextension, GetCategoriesOfImages, UpdateCategoryNameTool, FinalizeThefolderforthefilesforEachExtensions, workerCompletionStatus, FinalizeThefolderforImages, FinalizeThefolderforNonDocuments, GetCategoriesForNonDocuments, UpdateCategoryNameForNonDocumentsTool } from './fileCategorizationTools.js';
 import { HandOffToExecutionAgent } from '../tools/pipelineTools.js';
 import { ManageTodoListTool, MemoryScratchpadTool} from '../tools/planningAgentTools.js';
 import { stat } from "fs";
@@ -109,18 +109,19 @@ const NonDocumentCategorizationAgent = ({
         required: ["path", "TaskId", "ProcessId"]
     },
     async handler(params): Promise<string> {
-        console.log(`\x1b[95m[Master Tool]\x1b[0m NonDocumentCategorizationAgent for ${params.extensions.join(', ')}`);
+        console.log(`\x1b[95m[Master Tool]\x1b[0m NonDocumentCategorizationAgent for Task ${params.TaskId}`);
 
         const state = fileAgentRecord[params.ProcessId];
         if (!state) return "Error: Invalid ProcessId.";
 
-        const extensions: string[] = state.todoList
-                        .filter(x => x.id === params.TaskId)
-                        .flatMap(todoItem => todoItem.extension);
+        // const extensions: string[] = state.todoList
+        //                 .filter(x => x.id === params.TaskId)
+        //                 .flatMap(todoItem => todoItem.extensionList);
 
         const llmService = await LLMService.getInstance();
 
-            const session = new OpenAISession(llmService, nonDocumentWorkerAgentSystemPrompt(params.extensions, params.path));
+        return new Promise(async (resolve) => {
+            const session = new OpenAISession(llmService, nonDocumentWorkerAgentSystemPrompt(state.workspacePath));
             const runLoop = () => {
                 const rl = readline.createInterface({
                     input: process.stdin,
@@ -131,80 +132,36 @@ const NonDocumentCategorizationAgent = ({
                     const trimmed = answer.trim().toLowerCase();
                     if (trimmed === 'done' || trimmed === 'cancel') {
                         // session discarded
-                        resolve("Non-document organizing worker finished. Continue with next steps.");
+                        resolve("Non-document organizing worker finished. Continue with next steps. You can update the status in todo list for this task");
                         return;
                     }
                     try {
-                        const response = await session.prompt(answer, { functions: { FinalizeThefolderforthefilesforEachExtensions, UpdateCategoryNameTool } });
+                        const response = await session.prompt(answer, { functions: {GetCategoriesForNonDocuments, FinalizeThefolderforNonDocuments, UpdateCategoryNameForNonDocumentsTool } });
                         console.log(`\x1b[92mAssistant:\x1b[0m ${response}`);
                     } catch (e: any) {
                         console.log(`\x1b[91mError:\x1b[0m ${e.message}`);
                     }
 
-                    const allDone = params.extensions.every(ext => workerCompletionStatus[`${params.ProcessId}_${ext}`]);
-                    if (allDone) {
+                    if (workerCompletionStatus[`${params.ProcessId}_TaskId${params.TaskId}`]) {
                         // session discarded
-                        resolve(`Auto-finalized: Non-document organizing worker finished for ${params.extensions.join(', ')}.  You can update the status in todo list for this task`);
+                        resolve(`Non-document organizing Task is complete.  You can update the status in todo list for this task`);
                         return;
                     }
                     runLoop();
                 });
             };
 
-            const response = await session.prompt(`Start organizing these extensions: ${params.extensions.join(', ')} for ProcessId: ${params.ProcessId} and path: ${params.path}`, { functions: { FinalizeThefolderforthefilesforEachExtensions, UpdateCategoryNameTool } });
+            const response = await session.prompt(`Please start the process. ProcessId = ${params.ProcessId}, TaskId = ${params.TaskId}`, 
+            { functions: { GetCategoriesForNonDocuments, FinalizeThefolderforNonDocuments, UpdateCategoryNameForNonDocumentsTool } });
             console.log(`\x1b[92mAssistant:\x1b[0m ${response}`);
 
-            const allDone = params.extensions.every(ext => workerCompletionStatus[`${params.ProcessId}_${ext}`]);
-            if (allDone) {
+            if (workerCompletionStatus[`${params.ProcessId}_TaskId${params.TaskId}`]) {
                 // session discarded
-                resolve(`Auto-finalized: Non-document organizing worker finished for ${params.extensions.join(', ')}. You can update the status in todo list for this task`);
+                resolve(`Non-document organizing Task is complete.  You can update the status in todo list for this task`);
                 return;
             }
             runLoop();
-
-        // return new Promise(async (resolve) => {
-        //     const session = new OpenAISession(llmService, nonDocumentWorkerAgentSystemPrompt(params.extensions, params.path));
-        //     const runLoop = () => {
-        //         const rl = readline.createInterface({
-        //             input: process.stdin,
-        //             output: process.stdout
-        //         });
-        //         rl.question("\x1b[94mUser (Docs):\x1b[0m ", async (answer) => {
-        //             rl.close();
-        //             const trimmed = answer.trim().toLowerCase();
-        //             if (trimmed === 'done' || trimmed === 'cancel') {
-        //                 // session discarded
-        //                 resolve("Non-document organizing worker finished. Continue with next steps.");
-        //                 return;
-        //             }
-        //             try {
-        //                 const response = await session.prompt(answer, { functions: { FinalizeThefolderforthefilesforEachExtensions, UpdateCategoryNameTool } });
-        //                 console.log(`\x1b[92mAssistant:\x1b[0m ${response}`);
-        //             } catch (e: any) {
-        //                 console.log(`\x1b[91mError:\x1b[0m ${e.message}`);
-        //             }
-
-        //             const allDone = params.extensions.every(ext => workerCompletionStatus[`${params.ProcessId}_${ext}`]);
-        //             if (allDone) {
-        //                 // session discarded
-        //                 resolve(`Auto-finalized: Non-document organizing worker finished for ${params.extensions.join(', ')}.  You can update the status in todo list for this task`);
-        //                 return;
-        //             }
-        //             runLoop();
-        //         });
-        //     };
-
-        //     const response = await session.prompt(`Start organizing these extensions: ${params.extensions.join(', ')} for ProcessId: ${params.ProcessId} and path: ${params.path}`, { functions: { FinalizeThefolderforthefilesforEachExtensions, UpdateCategoryNameTool } });
-        //     console.log(`\x1b[92mAssistant:\x1b[0m ${response}`);
-
-        //     const allDone = params.extensions.every(ext => workerCompletionStatus[`${params.ProcessId}_${ext}`]);
-        //     if (allDone) {
-        //         // session discarded
-        //         resolve(`Auto-finalized: Non-document organizing worker finished for ${params.extensions.join(', ')}. You can update the status in todo list for this task`);
-        //         return;
-        //     }
-        //     runLoop();
-        // });
+        });
     }
 });
 
