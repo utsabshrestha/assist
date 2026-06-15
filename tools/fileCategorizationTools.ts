@@ -433,7 +433,7 @@ export const GetCategoriesForNonDocuments = {
         },
         required: ["ProcessId", "TaskId"]
     },
-    async handler(params: { ProcessId: string; extensions: string[] }): Promise<string> {
+    async handler(params: { ProcessId: string; TaskId: number }): Promise<string> {
         console.log(`\x1b[95m[Worker Tool]\x1b[0m GetCategoriesForNonDocuments → ${params.ProcessId} for Task Id : ${params.TaskId}`);
         try {
             const state = fileAgentRecord[params.ProcessId];

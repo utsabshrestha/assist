@@ -1,0 +1,31 @@
+{
+  "compilerOptions": {
+    "module": "Node16",
+    "moduleResolution": "node16",
+    "target": "es2022",
+    "outDir": "./dist-electron",
+    "rootDir": "./",
+    "strict": false,
+    "skipLibCheck": true,
+    "sourceMap": true,
+    "declaration": false,
+    "esModuleInterop": true,
+    "allowJs": true,
+    "noEmitOnError": false,
+    "types": ["node"]
+  },
+  "include": [
+    "electron/**/*.ts",
+    "src/**/*.ts",
+    "tools/**/*.ts"
+  ],
+  "exclude": [
+    "renderer/**/*",
+    "node_modules/**/*",
+    "dist-electron/**/*",
+    "src/utils/**/*.ts",
+    "tools/fileCategorizationTools.ts",
+    "tools/fileClassificationTool.ts",
+    "tools/imageClassificationTool.ts"
+  ]
+}

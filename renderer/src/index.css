@@ -1,0 +1,223 @@
+@import "tailwindcss";
+
+/* ============================================
+   DESIGN TOKENS — Classic Light Theme
+   ============================================ */
+@theme {
+  /* Colors */
+  --color-bg-base: #fafafa;
+  --color-bg-surface: #ffffff;
+  --color-bg-panel: #f5f5f4;
+  --color-bg-hover: #f0efed;
+  --color-border: #e7e5e4;
+  --color-border-strong: #d6d3d1;
+
+  --color-accent: #2563eb;
+  --color-accent-hover: #1d4ed8;
+  --color-accent-light: #eff6ff;
+
+  --color-text-primary: #1c1917;
+  --color-text-secondary: #57534e;
+  --color-text-muted: #a8a29e;
+  --color-text-placeholder: #c4bfbb;
+
+  /* Stage colors — subtle */
+  --color-planning: #d97706;
+  --color-categorization: #7c3aed;
+  --color-execution: #059669;
+  --color-done: #0284c7;
+  --color-idle: #78716c;
+
+  /* Log colors — muted */
+  --color-log-call: #7c3aed;
+  --color-log-result: #059669;
+  --color-log-pipeline: #d97706;
+  --color-log-error: #dc2626;
+  --color-log-info: #0284c7;
+
+  /* Fonts */
+  --font-sans: 'Inter', system-ui, -apple-system, sans-serif;
+  --font-mono: 'JetBrains Mono', 'Menlo', 'Monaco', monospace;
+}
+
+/* ============================================
+   BASE
+   ============================================ */
+*, *::before, *::after { box-sizing: border-box; }
+
+html, body, #root {
+  height: 100%;
+  overflow: hidden;
+  background: var(--color-bg-base);
+  color: var(--color-text-primary);
+  font-family: var(--font-sans);
+  -webkit-font-smoothing: antialiased;
+  user-select: none;
+}
+
+/* Custom scrollbar — minimal */
+::-webkit-scrollbar { width: 5px; height: 5px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background: var(--color-border-strong); border-radius: 9999px; }
+::-webkit-scrollbar-thumb:hover { background: var(--color-text-muted); }
+
+.selectable { user-select: text; }
+
+/* Electron titlebar drag */
+.titlebar-drag    { -webkit-app-region: drag; }
+.titlebar-no-drag { -webkit-app-region: no-drag; }
+
+/* ============================================
+   ANIMATIONS — subtle
+   ============================================ */
+@keyframes fadeIn {
+  from { opacity: 0; transform: translateY(4px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+
+@keyframes typing-dot {
+  0%, 80%, 100% { opacity: 0.3; }
+  40%           { opacity: 1; }
+}
+
+.animate-fade-in { animation: fadeIn 0.2s ease-out forwards; }
+
+.typing-dot { animation: typing-dot 1.2s ease-in-out infinite; }
+.typing-dot:nth-child(2) { animation-delay: 0.2s; }
+.typing-dot:nth-child(3) { animation-delay: 0.4s; }
+
+/* ============================================
+   MESSAGE BUBBLES — Classic style
+   ============================================ */
+.bubble-agent {
+  background: #ffffff;
+  border: 1px solid var(--color-border);
+  border-radius: 2px 12px 12px 12px;
+}
+
+.bubble-user {
+  background: var(--color-accent);
+  border-radius: 12px 2px 12px 12px;
+}
+
+.bubble-system {
+  background: var(--color-bg-panel);
+  border: 1px solid var(--color-border);
+  border-radius: 8px;
+}
+
+/* ============================================
+   INPUT BOX — Classic
+   ============================================ */
+.input-field {
+  background: #ffffff;
+  border: 1px solid var(--color-border-strong);
+  border-radius: 8px;
+  color: var(--color-text-primary);
+  font-family: var(--font-sans);
+  transition: border-color 0.15s, box-shadow 0.15s;
+  outline: none;
+}
+
+.input-field:focus {
+  border-color: var(--color-accent);
+  box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.08);
+}
+
+.input-field::placeholder { color: var(--color-text-placeholder); }
+
+/* ============================================
+   SEND BUTTON
+   ============================================ */
+.send-btn {
+  background: var(--color-accent);
+  color: #fff;
+  border-radius: 8px;
+  transition: background 0.15s, transform 0.1s;
+}
+
+.send-btn:hover:not(:disabled)  { background: var(--color-accent-hover); }
+.send-btn:active:not(:disabled) { transform: scale(0.97); }
+.send-btn:disabled { opacity: 0.4; cursor: not-allowed; }
+
+/* ============================================
+   MARKDOWN rendered output
+   ============================================ */
+.prose-agent h1, .prose-agent h2, .prose-agent h3 {
+  font-weight: 600;
+  margin-top: 0.75em;
+  margin-bottom: 0.4em;
+  color: var(--color-text-primary);
+}
+.prose-agent h1 { font-size: 1.1rem; }
+.prose-agent h2 { font-size: 1rem; }
+.prose-agent h3 { font-size: 0.9rem; }
+.prose-agent p  { margin-bottom: 0.5em; line-height: 1.6; }
+.prose-agent p:last-child { margin-bottom: 0; }
+.prose-agent ul, .prose-agent ol {
+  margin: 0.4em 0 0.4em 1.2em;
+  line-height: 1.6;
+}
+.prose-agent li { margin-bottom: 0.15em; }
+.prose-agent strong { font-weight: 600; }
+.prose-agent em { font-style: italic; }
+.prose-agent code {
+  background: var(--color-bg-panel);
+  border: 1px solid var(--color-border);
+  border-radius: 4px;
+  padding: 1px 5px;
+  font-family: var(--font-mono);
+  font-size: 0.85em;
+  color: #7c3aed;
+}
+.prose-agent pre {
+  background: var(--color-bg-panel);
+  border: 1px solid var(--color-border);
+  border-radius: 6px;
+  padding: 10px 12px;
+  overflow-x: auto;
+  margin: 0.5em 0;
+}
+.prose-agent pre code {
+  background: none;
+  border: none;
+  padding: 0;
+  color: var(--color-text-primary);
+}
+.prose-agent blockquote {
+  border-left: 3px solid var(--color-border-strong);
+  padding-left: 0.75em;
+  color: var(--color-text-secondary);
+  margin: 0.5em 0;
+}
+.prose-agent hr {
+  border: none;
+  border-top: 1px solid var(--color-border);
+  margin: 0.75em 0;
+}
+
+/* User bubble markdown override (white text) */
+.prose-user h1, .prose-user h2, .prose-user h3,
+.prose-user p, .prose-user li, .prose-user strong { color: #fff; }
+.prose-user code { background: rgba(255,255,255,0.15); border-color: rgba(255,255,255,0.2); color: #fff; }
+
+/* ============================================
+   LOG ENTRY — minimal, classic
+   ============================================ */
+.log-call     { border-left-color: var(--color-log-call); }
+.log-result   { border-left-color: var(--color-log-result); }
+.log-pipeline { border-left-color: var(--color-log-pipeline); }
+.log-error    { border-left-color: var(--color-log-error); }
+.log-info     { border-left-color: var(--color-log-info); }
+
+/* ============================================
+   SPLIT DIVIDER — subtle
+   ============================================ */
+.split-divider {
+  width: 1px;
+  background: var(--color-border);
+  cursor: col-resize;
+  flex-shrink: 0;
+  transition: background 0.15s;
+}
+.split-divider:hover { background: var(--color-accent); width: 2px; }

@@ -1,6 +1,19 @@
-node_modules
 .vscode
 #llm
 *.gguf
 .DS_Store
-[Start thinking].md
+
+# Node modules
+node_modules/
+
+# Dev/Build outputs
+dist/
+dist-electron/
+renderer/dist/
+
+# Log files
+*.log
+npm-debug.log*
+
+# OS specific files
+.DS_Store

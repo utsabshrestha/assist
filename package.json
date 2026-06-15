@@ -1,9 +1,15 @@
 {
   "name": "assist",
   "version": "1.0.0",
-  "description": "",
-  "main": "index.js",
+  "description": "AI-powered file organization agent",
+  "main": "dist-electron/electron/main.js",
+  "type": "module",
   "scripts": {
+    "dev:renderer": "vite",
+    "dev:electron": "wait-on http://localhost:5173 && npm run build:electron && cross-env NODE_ENV=development electron .",    "electron:dev": "concurrently --kill-others \"npm run dev:renderer\" \"npm run dev:electron\"",
+    "build:renderer": "vite build",
+    "build:electron": "tsc --project tsconfig.electron.json --noEmitOnError false",
+    "electron:build": "npm run build:renderer && npm run build:electron && electron-builder",
     "test": "echo \"Error: no test specified\" && exit 1"
   },
   "repository": {
@@ -13,7 +19,6 @@
   "keywords": [],
   "author": "",
   "license": "ISC",
-  "type": "module",
   "bugs": {
     "url": "https://github.com/utsabshrestha/assist/issues"
   },
@@ -26,15 +31,48 @@
     "officeparser": "^6.1.1",
     "openai": "^6.39.1",
     "pdf-parse": "^1.1.1",
+    "react": "^19.1.0",
+    "react-dom": "^19.1.0",
+    "react-markdown": "^10.1.0",
     "sharp": "^0.34.5",
     "xlsx": "^0.18.5"
   },
   "devDependencies": {
+    "@tailwindcss/vite": "^4.1.8",
     "@types/node": "^25.9.1",
     "@types/pdf-parse": "^1.1.5",
+    "@types/react": "^19.1.6",
+    "@types/react-dom": "^19.1.5",
     "@types/sharp": "^0.31.1",
+    "@vitejs/plugin-react": "^4.5.2",
+    "concurrently": "^9.1.2",
+    "cross-env": "^7.0.3",
+    "electron": "^37.1.0",
+    "electron-builder": "^26.0.12",
+    "tailwindcss": "^4.1.8",
     "ts-node": "^10.9.2",
     "tsx": "^4.21.0",
-    "typescript": "^6.0.2"
+    "typescript": "^6.0.2",
+    "vite": "^6.3.5",
+    "wait-on": "^8.0.3"
+  },
+  "build": {
+    "appId": "com.assist.fileagent",
+    "productName": "Assist",
+    "directories": {
+      "output": "release"
+    },
+    "files": [
+      "dist-electron/electron/**/*.js", 
+      "dist-electron/src/**/*.js",      
+      "dist-electron/tools/**/*.js",    
+      "renderer/dist/**/*",
+      "node_modules/**/*",
+      "package.json"
+    ],
+    "mac": {
+      "category": "public.app-category.productivity",
+      "target": "dmg"
+    }
   }
 }

@@ -1,4 +1,3 @@
-import * as readline from 'readline/promises';
 import { LLMService } from './LLMService.js';
 import {
     planningAgentSystemPrompt,
@@ -9,50 +8,40 @@ import { fileAgentRecord, fileAgentState } from './state/fileAgentState.js';
 import { OpenAISession } from './workerAgent.js';
 import {
     ERROR_ENCOUNTERED,
-    ErrorEncountered,
     HANDOFF_CATEGORIZATION_SENTINEL,
     HANDOFF_EXECUTION_SENTINEL
 } from '../tools/pipelineTools.js';
 import { PlanningTools } from '../tools/planningAgentTools.js';
 import { CategorizationTools } from '../tools/categorizationAgentTools.js';
 import { ExecutionTools } from '../tools/executionAgentTools.js';
+import { emitAgentMessage, emitLog, emitStage, requestUserInput } from '../electron/ipcBridge.js';
 
-class FileAgent {
+export class FileAgent {
 
-    public async chatLoop() : Promise<void> {
-        console.log("\n\x1b[93m[System]\x1b[0m Loading LLM Server via OpenAI SDK...");
+    public async chatLoop(initialUserMessage: string): Promise<void> {
+        emitLog('Loading LLM Server via OpenAI SDK...', 'info');
         
         const state = new fileAgentState();
         const processId = crypto.randomUUID();
         state.processId = processId;
         fileAgentRecord[processId] = state;
-        let errorEncountered : boolean = false;
+        let errorEncountered: boolean = false;
         const llm = await LLMService.getInstance();
 
-        console.log("\n\x1b[92m=== File Organization Agent Pipeline ===\x1b[0m");
-        console.log("Pipeline starting. Stage 1: Planning...");
-        console.log("Type 'exit' to quit.\n");
+        emitLog('File Organization Agent Pipeline starting. Stage 1: Planning...', 'pipeline');
 
         // ==========================================
         // STAGE 1: Planning Agent
         // ==========================================
-        console.log("\x1b[96m[Planning Agent Initialized]\x1b[0m");
+        emitStage('planning');
+        emitLog('Planning Agent Initialized', 'pipeline');
         const agent1Prompt = planningAgentSystemPrompt(processId);
         const session1 = new OpenAISession(llm, agent1Prompt);
-        while (process.stdin.read() !== null) {
-            // Keep looping until the stream buffer is entirely empty
-        }
-        const rl = readline.createInterface({
-                input: process.stdin,
-                output: process.stdout
-            });
-        const userInput = await rl.question("\x1b[94mUser:\x1b[0m ");
-            rl.close();
 
-        if (userInput.toLowerCase() === 'exit' || userInput.toLowerCase() === 'quit') return;
+        if (initialUserMessage.toLowerCase() === 'exit' || initialUserMessage.toLowerCase() === 'quit') return;
 
-        // Seed or start the planning agent
-        let result1 = await session1.prompt(userInput, {
+        // Seed the planning agent with the user's initial message
+        let result1 = await session1.prompt(initialUserMessage, {
             functions: PlanningTools
         });
 
@@ -60,17 +49,12 @@ class FileAgent {
             if (result1?.includes(HANDOFF_CATEGORIZATION_SENTINEL)) {
                 break;
             }
-            if(result1?.includes(ERROR_ENCOUNTERED)){
+            if (result1?.includes(ERROR_ENCOUNTERED)) {
                 errorEncountered = true;
                 break;
             }
 
-            const rl = readline.createInterface({
-                input: process.stdin,
-                output: process.stdout
-            });
-            const userInput = await rl.question("\x1b[94mUser (Planning):\x1b[0m ");
-            rl.close();
+            const userInput = await requestUserInput('Planning Agent');
 
             if (userInput.toLowerCase() === 'exit' || userInput.toLowerCase() === 'quit') return;
 
@@ -78,18 +62,18 @@ class FileAgent {
                 functions: PlanningTools
             });
         }
-        if(errorEncountered)
-            return;
+        if (errorEncountered) return;
 
         // ==========================================
         // STAGE 2: Categorization Agent
         // ==========================================
-        console.log("\n\x1b[96m[Categorization Agent Initialized]\x1b[0m");
+        emitStage('categorization');
+        emitLog('Categorization Agent Initialized', 'pipeline');
         const agent2Prompt = categorizationAgentSystemPrompt(processId);
         const session2 = new OpenAISession(llm, agent2Prompt);
 
         // Seed stage 2 to begin executing the todo list immediately
-        let result2 = await session2.prompt("Begin categorization.", {
+        let result2 = await session2.prompt('Begin categorization.', {
             functions: CategorizationTools
         });
 
@@ -97,17 +81,12 @@ class FileAgent {
             if (result2?.includes(HANDOFF_EXECUTION_SENTINEL)) {
                 break;
             }
-            if(result2?.includes(ERROR_ENCOUNTERED)){
+            if (result2?.includes(ERROR_ENCOUNTERED)) {
                 errorEncountered = true;
                 break;
             }
 
-            const rl = readline.createInterface({
-                input: process.stdin,
-                output: process.stdout
-            });
-            const userInput = await rl.question("\x1b[94mUser (Categorization):\x1b[0m ");
-            rl.close();
+            const userInput = await requestUserInput('Categorization Agent');
 
             if (userInput.toLowerCase() === 'exit' || userInput.toLowerCase() === 'quit') return;
 
@@ -115,24 +94,23 @@ class FileAgent {
                 functions: CategorizationTools
             });
         }
-        if(errorEncountered)
-            return;
+        if (errorEncountered) return;
 
         // ==========================================
         // STAGE 3: Execution Agent
         // ==========================================
-        console.log("\n\x1b[96m[Execution Agent Initialized]\x1b[0m");
+        emitStage('execution');
+        emitLog('Execution Agent Initialized', 'pipeline');
         const agent3Prompt = executionAgentSystemPrompt(processId);
         const session3 = new OpenAISession(llm, agent3Prompt);
 
         // Stage 3 executes in one shot by showing the plan and running execution tool
-        await session3.prompt("Show the final plan for confirmation and then execute the process.", {
+        await session3.prompt('Show the final plan for confirmation and then execute the process.', {
             functions: ExecutionTools
         });
 
-        console.log("\n\x1b[92m=== File Organization Pipeline Completed Successfully ===\x1b[0m\n");
+        emitLog('File Organization Pipeline Completed Successfully', 'pipeline');
     }
 }
 
 export const fileAgent = new FileAgent();
-fileAgent.chatLoop().catch(console.error);

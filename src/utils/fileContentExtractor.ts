@@ -1,4 +1,6 @@
+import { off } from 'cluster';
 import * as fs from 'fs/promises';
+import type { OfficeParserAST } from 'officeparser';
 import * as path from 'path';
 
 export class FileContentExtractor {
@@ -22,6 +24,7 @@ export class FileContentExtractor {
         const ext = path.extname(filePath).toLowerCase();
         const baseName = path.basename(filePath);
         let content = '';
+        let officeParseAst : OfficeParserAST = null;
 
         try {
             if (ext === '.pdf') {
@@ -63,7 +66,7 @@ export class FileContentExtractor {
                 const officeParserM = await import('officeparser');
                 const officeParser = officeParserM.default || officeParserM;
                 // parseOffice is async
-                content = await officeParser.parseOffice(filePath);
+                officeParseAst = await officeParser.parseOffice(filePath);
             } else if (ext === '.epub') {
                 const { EPub } = await import('epub2');
                 const epub = new EPub(filePath);
@@ -110,6 +113,9 @@ export class FileContentExtractor {
             console.error(`Failed to extract content for ${filePath}: ${e}`);
         }
 
+        if ((ext === '.pptx' || ext === '.ppt') && officeParseAst !== null){
+            content = FileContentExtractor.extractTextFromParsedObject(officeParseAst);
+        }
         // Clean up and truncate
         if (typeof content !== 'string') {
             content = FileContentExtractor.extractTextFromParsedObject(content);

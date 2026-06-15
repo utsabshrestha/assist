@@ -1,7 +1,9 @@
 import path from "path";
 import { fileAgentRecord, fileStatus } from "../src/state/fileAgentState.js";
 import * as fs from 'fs/promises';
+import type { Dirent } from 'fs';
 import { ErrorEncountered, HandOffToCategorizationAgent } from '../tools/pipelineTools.js';
+import { emitLog } from '../electron/ipcBridge.js';
 
 /**
  * Planning Agent 1 — Planning Agent tool set.
@@ -28,7 +30,7 @@ const GetFolderSummaryTool = ({
         required: ["path", "ProcessId"]
     },
     async handler(params): Promise<string> {
-        console.log(`\x1b[95m[Master Tool]\x1b[0m getFolderSummary → ${params.path}`);
+        emitLog(`getFolderSummary → ${params.path}`, 'tool_call', 'GetFolderSummaryTool');
         const state = fileAgentRecord[params.ProcessId];
         if (!state) return "Error: Invalid ProcessId.";
         state.workspacePath = params.path;
@@ -42,11 +44,11 @@ const GetFolderSummaryTool = ({
         try {
             const entries = await fs.readdir(state.workspacePath, { withFileTypes: true });
             const files = entries
-                .filter((e: fs.Dirent) => e.isFile())
-                .sort((a: fs.Dirent, b: fs.Dirent) => a.name.localeCompare(b.name));
+                .filter((e: Dirent) => e.isFile())
+                .sort((a: Dirent, b: Dirent) => a.name.localeCompare(b.name));
             let totalFileSize: number = 0;
 
-            await Promise.all(files.map(async (file: fs.Dirent) => {
+            await Promise.all(files.map(async (file: Dirent) => {
                 const fullPath = path.join(state.workspacePath, file.name);
                 try {
                     const stats = await fs.stat(fullPath);
@@ -76,7 +78,7 @@ const GetFolderSummaryTool = ({
                     if (defaultCategory) newFileStatus.category = defaultCategory;
                     state.AddFile(newFileStatus);
                 } catch (ex) {
-                    console.log(`Error encountered while listing files ${ex}`)
+                    emitLog(`Error encountered while listing files ${ex}`, 'error');
                 }
             }));
 
@@ -86,7 +88,7 @@ const GetFolderSummaryTool = ({
             })
 
             const extensions: string[] = Array.from(new Set(
-                files.map((f: fs.Dirent) => path.extname(f.name).toLowerCase()).filter((e: string) => e !== '')
+                files.map((f: Dirent) => path.extname(f.name).toLowerCase()).filter((e: string) => e !== '')
             ));
 
             const imageExtensions = ['.jpg', '.jpeg', '.png', '.webp', '.gif', '.svg', '.ico', '.bmp', '.tiff'];
@@ -158,7 +160,7 @@ const MemoryScratchpadTool = ({
         required: ["ProcessId", "action"]
     },
     async handler(params): Promise<string> {
-        console.log(`\x1b[95m[Master Tool]\x1b[0m MemoryScratchpadTool (Action: ${params.action})`);
+        emitLog(`MemoryScratchpadTool (Action: ${params.action})`, 'tool_call', 'MemoryScratchpadTool');
         const state = fileAgentRecord[params.ProcessId];
         if (!state) return "Error: Invalid ProcessId.";
 
@@ -213,7 +215,7 @@ const ManageTodoListTool = ({
         required: ["ProcessId", "action"]
     },
     async handler(params): Promise<string> {
-        console.log(`\x1b[95m[Master Tool]\x1b[0m ManageTodoListTool (Action: ${params.action})`);
+        emitLog(`ManageTodoListTool (Action: ${params.action})`, 'tool_call', 'ManageTodoListTool');
         const state = fileAgentRecord[params.ProcessId];
         if (!state) return "Error: Invalid ProcessId.";
         

@@ -2,6 +2,7 @@
 
 import { LLMService } from "./LLMService.js";
 import OpenAI from "openai";
+import { emitAgentMessage, emitLog } from "../electron/ipcBridge.js";
 
 export class OpenAISession {
     public messages: OpenAI.Chat.Completions.ChatCompletionMessageParam[] = [];
@@ -26,7 +27,7 @@ export class OpenAISession {
         }
 
         while (true) {
-            // @ts-ignore - The SDK expects a specific type for 'tools' array if it is present. We ignore to allow passing our manually mapped list or undefined when empty.
+            // @ts-ignore
             const response = await this.llm.openai.chat.completions.create({
                 model: this.llm.modelName,
                 messages: this.messages,
@@ -38,8 +39,9 @@ export class OpenAISession {
             if (!msg) break;
             this.messages.push(msg);
 
-             if (msg.content) {
-                process.stdout.write(`\n\x1b[92mAssistant:\x1b[0m ${msg.content}\n`);
+            if (msg.content) {
+                // Route assistant messages to the main chat panel
+                emitAgentMessage(msg.content, 'agent');
             }
 
             if (msg.tool_calls && msg.tool_calls.length > 0) {
@@ -47,7 +49,9 @@ export class OpenAISession {
                     const funcCall = (toolCall as any).function;
                     if (!funcCall) continue;
                     
-                    process.stdout.write(`\n\x1b[95m[Tool Call]\x1b[0m ${funcCall.name}(${funcCall.arguments})\n`);
+                    // Log tool calls to the side panel
+                    emitLog(`${funcCall.name}(${funcCall.arguments})`, 'tool_call', funcCall.name);
+                    
                     const funcName = funcCall.name;
                     const args = JSON.parse(funcCall.arguments);
                     
@@ -61,8 +65,10 @@ export class OpenAISession {
                                 content: toolResultContent
                             });
 
+                            // Log tool results to the side panel
+                            emitLog(toolResultContent.slice(0, 500) + (toolResultContent.length > 500 ? '...' : ''), 'tool_result', funcName);
+
                             // Pipeline sentinel: a handoff tool signals we should exit this loop
-                            // and pass control to the next pipeline agent.
                             if (toolResultContent.startsWith("__HANDOFF_")) {
                                 return toolResultContent;
                             }
@@ -70,18 +76,22 @@ export class OpenAISession {
                                 return toolResultContent;
                             }
                         } catch (e: any) {
+                            const errMsg = `Error: ${e.message}`;
                             this.messages.push({
                                 role: "tool",
                                 tool_call_id: toolCall.id,
-                                content: `Error: ${e.message}`
+                                content: errMsg
                             });
+                            emitLog(errMsg, 'error', funcName);
                         }
                     } else {
+                        const errMsg = `Error: Tool ${funcName} not found.`;
                         this.messages.push({
                             role: "tool",
                             tool_call_id: toolCall.id,
-                            content: `Error: Tool ${funcName} not found.`
+                            content: errMsg
                         });
+                        emitLog(errMsg, 'error');
                     }
                 }
             } else {

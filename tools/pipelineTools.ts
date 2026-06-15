@@ -1,4 +1,5 @@
 import { fileAgentRecord } from '../src/state/fileAgentState.js';
+import { emitLog } from '../electron/ipcBridge.js';
 
 /**
  * Sentinel prefixes detected by OpenAISession.prompt() to break the React loop.
@@ -29,7 +30,7 @@ export const HandOffToCategorizationAgent = ({
         }
 
         state.phase = 'categorization';
-        console.log(`\n\x1b[93m[Pipeline]\x1b[0m Planning complete. Handing off to Categorization Agent...\n`);
+        emitLog('Planning complete. Handing off to Categorization Agent...', 'pipeline');
         return HANDOFF_CATEGORIZATION_SENTINEL;
     }
 });
@@ -54,8 +55,8 @@ export const ErrorEncountered = ({
         const state = fileAgentRecord[params.ProcessId];
         if (!state) return "Error: Invalid ProcessId.";
 
-        console.log(`\n\x1b[93m[Pipeline]\x1b[0m Error Encountered...\n`);
-        console.log(`\n\x1b[93m[Error]\x1b[0m ${params.Error}...\n`);
+        emitLog('Error Encountered in pipeline', 'error');
+        emitLog(params.Error, 'error');
         return ERROR_ENCOUNTERED;
     }
 });
@@ -85,7 +86,7 @@ export const HandOffToExecutionAgent = ({
         }
 
         state.phase = 'execution';
-        console.log(`\n\x1b[93m[Pipeline]\x1b[0m Categorization complete. Handing off to Execution Agent...\n`);
+        emitLog('Categorization complete. Handing off to Execution Agent...', 'pipeline');
         return HANDOFF_EXECUTION_SENTINEL;
     }
 });

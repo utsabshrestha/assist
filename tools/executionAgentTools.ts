@@ -1,12 +1,12 @@
 import path from "path";
 import { fileAgentRecord, fileStatus } from "../src/state/fileAgentState.js";
-import * as readline from 'readline';
 import { mkdir } from 'node:fs/promises';
 import { rename } from 'node:fs/promises'
 import { ErrorEncountered } from "./pipelineTools.js";
+import { emitLog, requestUserInput } from "../electron/ipcBridge.js";
 
 const getFinalPlanConfirmation = ({
-    description: "Prints the complete proposed file movement plan to the console and asks the user for confirmation. Call this ONLY after finalizing all folders for all extensions. The LLM will receive the user's response to either proceed or make changes.",
+    description: "Prints the complete proposed file movement plan to the UI and asks the user for confirmation. Call this ONLY after finalizing all folders for all extensions. The LLM will receive the user's response to either proceed or make changes.",
     params: {
         type: "object",
         properties: {
@@ -33,44 +33,33 @@ const getFinalPlanConfirmation = ({
             plan[file.fileNewDestination]?.push(file.fileName);
         }
 
-        // Print beautifully to the user's console directly (bypassing the LLM context limit)
-        console.log("\n========================================================");
-        console.log("                📦 PROPOSED MOVEMENT PLAN               ");
-        console.log("========================================================");
-
+        // Build a readable plan summary for the log panel
+        let planText = "📦 PROPOSED MOVEMENT PLAN\n";
+        planText += "=".repeat(48) + "\n";
         for (const [folder, fileNames] of Object.entries(plan)) {
-            console.log(`\n📁 Destination: \x1b[36m${folder}\x1b[0m`);
-            const displayFiles = fileNames.slice(0, 5);
-            displayFiles.forEach(f => console.log(`   📄 ${f}`));
-            if (fileNames.length > 5) {
-                console.log(`   ... and \x1b[33m${fileNames.length - 5} more files\x1b[0m.`);
-            }
+            planText += `\n📁 ${folder}\n`;
+            fileNames.slice(0, 5).forEach(f => { planText += `   📄 ${f}\n`; });
+            if (fileNames.length > 5) planText += `   ... and ${fileNames.length - 5} more files\n`;
         }
-
         if (unassignedCount > 0) {
-            console.log(`\n⚠️  WARNING: \x1b[31m${unassignedCount} files currently have NO destination folder assigned.\x1b[0m`);
+            planText += `\n⚠️ WARNING: ${unassignedCount} files have NO destination folder assigned.\n`;
         }
-        console.log("========================================================\n");
+        planText += "=".repeat(48);
 
-        // Pause the tool execution to ask for user input via terminal
-        return new Promise((resolve) => {
-            const rl = readline.createInterface({
-                input: process.stdin,
-                output: process.stdout
-            });
-            rl.question("\x1b[95mDo you confirm this plan? [Type 'confirm' to proceed, or type changes you want]: \x1b[0m", (answer) => {
-                rl.close();
-                const trimmed = answer.trim().toLowerCase();
-                if (trimmed === 'confirm' || trimmed === 'y' || trimmed === 'yes') {
-                    state.planConfirmed = true;
-                    state.planConfirmedFiles = planConfirmedFiles;
-                    resolve("User confirmed the plan exactly as is. You may proceed to create the folders and execute the move plan.");
-                } else {
-                    state.planConfirmed = false;
-                    resolve(`User did not confimed the plan. This is what user said about the plan : "${answer}". Please adjust the categories/folders as requested by the user using the Finalize tool again, or respond accordingly.`);
-                }
-            });
-        });
+        emitLog(planText, 'info', 'ExecutionPlan');
+
+        // Ask the user for confirmation via the UI input box
+        const answer = await requestUserInput("Confirm plan? [Type 'confirm' to proceed, or describe changes]");
+        const trimmed = answer.trim().toLowerCase();
+
+        if (trimmed === 'confirm' || trimmed === 'y' || trimmed === 'yes') {
+            state.planConfirmed = true;
+            state.planConfirmedFiles = planConfirmedFiles;
+            return "User confirmed the plan exactly as is. You may proceed to create the folders and execute the move plan.";
+        } else {
+            state.planConfirmed = false;
+            return `User did not confirm the plan. This is what user said about the plan : "${answer}". Please adjust the categories/folders as requested by the user using the Finalize tool again, or respond accordingly.`;
+        }
     }
 });
 
@@ -87,7 +76,7 @@ const Executetheprocess = ({
         required: ["ProcessId"]
     },
     async handler(params): Promise<string> {
-        console.log(`\x1b[95m[Master Tool]\x1b[0m Executetheprocess → ${params.path}`);
+        emitLog(`Executetheprocess started`, 'tool_call', 'Executetheprocess');
         const state = fileAgentRecord[params.ProcessId];
         if (!state) return "Error: Invalid ProcessId.";
 
@@ -130,7 +119,6 @@ const Executetheprocess = ({
                 await mkdir(folder, { recursive: true });
                 results.foldersCreated++;
             } catch (e: any) {
-                // Ignore "folder already exists" (EEXIST) errors
                 if (e.code !== 'EEXIST') {
                     results.folderErrors.push(`Failed to create folder ${folder}: ${e.message}`);
                 }
@@ -146,7 +134,6 @@ const Executetheprocess = ({
                     continue;
                 }
                 await rename(file.filePath, destPath);
-                // Update state upon success
                 file.isFileSuccessfullyMoved = true;
                 results.filesMoved++;
             } catch (e: any) {
@@ -166,7 +153,7 @@ const Executetheprocess = ({
             summary += `- File Move Errors: 0\n`;
         }
 
-        console.log("\x1b[32mExecution complete!\x1b[0m", { folders: results.foldersCreated, moved: results.filesMoved, errors: results.fileErrors.length });
+        emitLog(`Execution complete! Folders: ${results.foldersCreated}, Moved: ${results.filesMoved}, Errors: ${results.fileErrors.length}`, 'info', 'Executetheprocess');
         return summary;
     }
 });
