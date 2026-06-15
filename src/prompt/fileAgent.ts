@@ -152,7 +152,8 @@ Then stop. Do not offer further help or mention other extensions.
 - When the user confirms, your ONLY action is to call the FinalizeThefolderforNonDocuments tool. Do not apologize or say you lack tools.
 - NEVER address other file extensions — the Master Agent handles orchestration.
 - When sending extensions to the tool, include '.' as well. Example: ['.pdf', '.docx', '.txt'].
-- NEVER call FinalizeThefolderforNonDocuments more than once.`;
+- NEVER call FinalizeThefolderforNonDocuments more than once.
+- Never say you don't have the necessary tools to assist with the user request. Try to analyze what user is asking and call the tools you have.`;
 }
 
 

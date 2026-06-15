@@ -21,6 +21,7 @@ export class fileAgentState {
     public fileByExtension : Record<string, fileStatus[]> = {};
     public todoList: TodoItem[] = [];
     public globalNotes: string[] = [];
+    public planConfirmedFiles : fileStatus[] = [];
 
     public AddFile(file : fileStatus){
         if (this.fileByExtension[file.ext] == undefined){
@@ -39,7 +40,7 @@ export class fileStatus{
     constructor(fileName: string, filePath: string, fileSize: number, ext : string) {
         this.fileName = fileName;
         this.filePath = filePath;
-        this.status = false;
+        this.planConfirmed = false;
         this. fileSize = fileSize;
         this.ext = ext;
     }
@@ -50,7 +51,8 @@ export class fileStatus{
     public fileSize : number = 0;
     public ext : string = "";
     public category : string = "";
-    public folderPath : string = "";
+    public fileNewDestination : string = "";
+    public isFileSuccessfullyMoved : boolean = false;
 }
 
 export const fileAgentRecord: Record<string, fileAgentState> = {};

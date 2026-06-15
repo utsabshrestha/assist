@@ -132,7 +132,7 @@ const NonDocumentCategorizationAgent = ({
                     const trimmed = answer.trim().toLowerCase();
                     if (trimmed === 'done' || trimmed === 'cancel') {
                         // session discarded
-                        resolve("Non-document organizing worker finished. Continue with next steps. You can update the status in todo list for this task");
+                        resolve("Non-document organizing Task is complete. Continue with next steps. You can update the status in todo list for this task");
                         return;
                     }
                     try {
@@ -144,7 +144,7 @@ const NonDocumentCategorizationAgent = ({
 
                     if (workerCompletionStatus[`${params.ProcessId}_TaskId${params.TaskId}`]) {
                         // session discarded
-                        resolve(`Non-document organizing Task is complete.  You can update the status in todo list for this task`);
+                        resolve(`Non-document organizing Task is complete.  Continue with next steps.  You can update the status in todo list for this task`);
                         return;
                     }
                     runLoop();

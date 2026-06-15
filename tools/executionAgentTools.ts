@@ -1,6 +1,8 @@
 import path from "path";
 import { fileAgentRecord, fileStatus } from "../src/state/fileAgentState.js";
 import * as readline from 'readline';
+import { mkdir } from 'node:fs/promises';
+import { rename } from 'node:fs/promises'
 
 const getFinalPlanConfirmation = ({
     description: "Prints the complete proposed file movement plan to the console and asks the user for confirmation. Call this ONLY after finalizing all folders for all extensions. The LLM will receive the user's response to either proceed or make changes.",
@@ -19,18 +21,15 @@ const getFinalPlanConfirmation = ({
         if (!state) return "Error: Invalid ProcessId.";
 
         // Group all finalized files by destination folder
-        let plan: Record<string, string[]> = {};
-        let unassignedCount = 0;
+        const plan: Record<string, string[]> = {};
+        let unassignedCount = state.fileListData.filter(files => files.planConfirmed == false).length;
 
-        for (const files of Object.values(state.fileByExtension)) {
-            for (const file of files) {
-                if (file.folderPath) {
-                    if (!plan[file.folderPath]) plan[file.folderPath] = [];
-                    plan[file.folderPath].push(file.fileName);
-                } else {
-                    unassignedCount++;
-                }
+        const planConfirmedFiles = state.fileListData.filter(files => files.planConfirmed == true && files.fileNewDestination !== "");
+        for(const file of planConfirmedFiles){
+            if (!plan[file.fileNewDestination]){
+                plan[file.fileNewDestination] = [];
             }
+            plan[file.fileNewDestination]?.push(file.fileName);
         }
 
         // Print beautifully to the user's console directly (bypassing the LLM context limit)
@@ -63,6 +62,7 @@ const getFinalPlanConfirmation = ({
                 const trimmed = answer.trim().toLowerCase();
                 if (trimmed === 'confirm' || trimmed === 'y' || trimmed === 'yes') {
                     state.planConfirmed = true;
+                    state.planConfirmedFiles = planConfirmedFiles;
                     resolve("User confirmed the plan exactly as is. You may proceed to create the folders and execute the move plan.");
                 } else {
                     state.planConfirmed = false;
@@ -81,13 +81,9 @@ const Executetheprocess = ({
             ProcessId: {
                 type: "string",
                 description: "The unique process id for this session."
-            },
-            path: {
-                type: "string",
-                description: "The absolute path of the workspace where operations are being performed."
             }
         },
-        required: ["ProcessId", "path"]
+        required: ["ProcessId"]
     },
     async handler(params): Promise<string> {
         console.log(`\x1b[95m[Master Tool]\x1b[0m Executetheprocess → ${params.path}`);
@@ -99,18 +95,13 @@ const Executetheprocess = ({
             return "Error: You CANNOT execute the process because the user has not confirmed the plan. You must use getFinalPlanConfirmation and receive explicit user approval first.";
         }
 
-        // Security check: ensure LLM isn't trying to operate on a different path
-        if (path.resolve(params.path) !== path.resolve(state.workspacePath)) {
-            return `Error: The path provided ('${params.path}') does not match the established workspace path ('${state.workspacePath}'). Operations are only allowed within the original workspace.`;
-        }
-
         const foldersToCreate = new Set<string>();
         const filesToMove: fileStatus[] = [];
 
         // Gather all destinations based on the finalized state
-        for (const file of state.fileListData) {
-            if (file.folderPath && !file.status) {
-                foldersToCreate.add(file.folderPath);
+        for(const file of state.planConfirmedFiles){
+            if(file.fileNewDestination && file.planConfirmed){
+                foldersToCreate.add(file.fileNewDestination);
                 filesToMove.push(file);
             }
         }
@@ -135,7 +126,7 @@ const Executetheprocess = ({
                 continue;
             }
             try {
-                await fs.mkdir(folder, { recursive: true });
+                await mkdir(folder, { recursive: true });
                 results.foldersCreated++;
             } catch (e: any) {
                 // Ignore "folder already exists" (EEXIST) errors
@@ -148,15 +139,14 @@ const Executetheprocess = ({
         // 2. Safely Move Files
         for (const file of filesToMove) {
             try {
-                const destPath = path.join(file.folderPath, file.fileName);
+                const destPath = path.join(file.fileNewDestination, file.fileName);
                 if (!path.resolve(destPath).startsWith(resolvedWorkspacePath)) {
                     results.fileErrors.push(`Failed to move ${file.fileName}: Security Error - Destination path is outside workspace.`);
                     continue;
                 }
-                await fs.rename(file.filePath, destPath);
+                await rename(file.filePath, destPath);
                 // Update state upon success
-                file.filePath = destPath;
-                file.status = true;
+                file.isFileSuccessfullyMoved = true;
                 results.filesMoved++;
             } catch (e: any) {
                 results.fileErrors.push(`Failed to move ${file.fileName}: ${e.message}`);

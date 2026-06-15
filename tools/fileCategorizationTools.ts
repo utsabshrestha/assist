@@ -243,7 +243,7 @@ export const FinalizeThefolderforthefilesforEachExtensions = ({
                 if (!resolvedTarget.startsWith(path.resolve(state.workspacePath))) {
                     return `Error: The folder path '${mapping.folder}' is outside the authorized workspace path '${state.workspacePath}'. All folders must be strictly inside the workspace. Please report to the User.`;
                 }
-                file.folderPath = resolvedTarget;
+                file.fileNewDestination = resolvedTarget;
                 file.planConfirmed = true;
                 updatedCount++;
             }
@@ -323,7 +323,7 @@ export const FinalizeThefolderforImages = ({
                     if (!resolvedTarget.startsWith(path.resolve(state.workspacePath))) {
                         return `Error: The folder path '${mapping.folder}' is outside the authorized workspace path '${state.workspacePath}'. All folders must be strictly inside the workspace.`;
                     }
-                    file.folderPath = resolvedTarget;
+                    file.fileNewDestination = resolvedTarget;
                     file.planConfirmed = true;
                     updatedCount++;
                 }
@@ -403,7 +403,7 @@ export const FinalizeThefolderforNonDocuments = ({
                     if (!resolvedTarget.startsWith(path.resolve(state.workspacePath))) {
                         return `Error: The folder path '${mapping.folder}' is outside the authorized workspace path '${state.workspacePath}'. All folders must be strictly inside the workspace.`;
                     }
-                    file.folderPath = resolvedTarget;
+                    file.fileNewDestination = resolvedTarget;
                     file.planConfirmed = true;
                     updatedCount++;
                 }
@@ -411,7 +411,7 @@ export const FinalizeThefolderforNonDocuments = ({
 
             workerCompletionStatus[`${params.ProcessId}_${ext.replaceAll(".", "")}`] = true;
         }
-
+        workerCompletionStatus[`${params.ProcessId}_TaskId${params.TaskId}`] = true;
         return `Successfully finalized destination folder.`;
     }
 });
