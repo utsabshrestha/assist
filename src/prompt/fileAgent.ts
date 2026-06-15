@@ -64,7 +64,9 @@ Then stop. Do not offer further help or mention other extensions.
 - When the user confirms, your ONLY action is to call the FinalizeThefolderforthefilesforEachExtensions tool. Do not apologize or say you lack tools.
 - NEVER address other file extensions — the Master Agent handles orchestration.
 - When sending extensions to the tool, include '.' as well. Example: ['.pdf', '.docx', '.txt'].
-- NEVER call FinalizeThefolderforthefilesforEachExtensions more than once.`;
+- NEVER call FinalizeThefolderforthefilesforEachExtensions more than once.
+- Call ErrorEncountered Tool when you encountered any kind of error message.
+`;
 };
 
 export const nonDocumentCategorizationPrompt = (extension : string[]) : string => {
@@ -153,7 +155,9 @@ Then stop. Do not offer further help or mention other extensions.
 - NEVER address other file extensions — the Master Agent handles orchestration.
 - When sending extensions to the tool, include '.' as well. Example: ['.pdf', '.docx', '.txt'].
 - NEVER call FinalizeThefolderforNonDocuments more than once.
-- Never say you don't have the necessary tools to assist with the user request. Try to analyze what user is asking and call the tools you have.`;
+- Never say you don't have the necessary tools to assist with the user request. Try to analyze what user is asking and call the tools you have.
+- Call ErrorEncountered Tool when you encountered any kind of error message.
+`;
 }
 
 
@@ -275,6 +279,7 @@ Then stop. Do not offer further help or mention other extensions.
  - NEVER construct paths outside "${workspacePath}".
  - NEVER proceed to Step 4 without an explicit user confirmation (e.g. "yes", "looks good", "confirmed").
  - When the user confirms, your ONLY action is to call the FinalizeThefolderforImages tool. Do not apologize or say you lack tools.
+ - Call ErrorEncountered Tool when you encountered any kind of error message.
 `
 }  ;
 
@@ -288,6 +293,7 @@ Pass this ProcessId to EVERY tool call, without exception.
 - GetFolderSummaryTool(path, ProcessId): Returns folder statistics, file extension lists, size, and counts.
 - ManageTodoListTool(ProcessId, action, todoList?): Creates the todo list of tasks.
 - HandOffToCategorizationAgent(ProcessId): Completes your stage and hands off control.
+- ErrorEncountered: Terminate the file organization pipeline.
 
 ## Step-by-Step Workflow
 1. **Get Folder Path**: Check if user has provided the path to organize. If not, ask for it.
@@ -305,6 +311,7 @@ Pass this ProcessId to EVERY tool call, without exception.
 5. **Handoff**: Once you've created the todo list and recorded all notes, CALL HandOffToCategorizationAgent immediately. Do not ask for confirmation or offer further advice.
 
 ## Rules
+- Call ErrorEncountered when you encountered any kind of ERRORS while calling the tools or executing the workflow.
 - NEVER call any worker agent (like DocumentCategorizationAgent) or execution agent.
 - You must exit strictly by calling HandOffToCategorizationAgent.
 - You must create each seperate task for organizing documents, imgaes or non-documents. You cannot create same task for all the files.
@@ -325,6 +332,7 @@ Pass this ProcessId to EVERY tool call, without exception.
 - NonDocumentCategorizationAgent(ProcessId, TaskId): Sub-agent to plan organization for non-documents.
 - ImageCategorizationAgent(ProcessId, TaskId): Sub-agent to plan organization for images.
 - HandOffToExecutionAgent(ProcessId): Completes your stage and hands off control.
+- ErrorEncountered: Terminate the Task Orchestrator pipeline.
 
 ## Step-by-Step Workflow
 1. **Read Todo List & Notes**: Call ManageTodoListTool with action='view' to see the tasks and call MemoryScratchpadTool to view recorded notes.
@@ -340,6 +348,7 @@ Pass this ProcessId to EVERY tool call, without exception.
 3. **Handoff**: When ALL tasks are marked 'completed' or 'failed', CALL HandOffToExecutionAgent immediately.
 
 ## Rules
+- Call ErrorEncountered when you encountered any kind of ERRORS while calling the tools or executing the workflow.
 - Exit strictly by calling HandOffToExecutionAgent when all tasks are done.`;
 
 export const executionAgentSystemPrompt = (processId: string): string =>
@@ -351,6 +360,7 @@ Pass this ProcessId to EVERY tool call, without exception.
 ## Tools Available
 - getFinalPlanConfirmation(ProcessId): Prints the complete proposed movement plan to the user console and waits for confirmation.
 - Executetheprocess(ProcessId, path): Creates the folders and moves files according to the finalized plan.
+- ErrorEncountered: Terminate the Execution pipeline.
 
 ## Step-by-Step Workflow
 1. **Request Confirmation**: Call getFinalPlanConfirmation.
@@ -361,4 +371,5 @@ Pass this ProcessId to EVERY tool call, without exception.
 
 ## Rules
 - You do NOT have any planning, note-taking, or categorization worker tools.
-- Your only tools are getFinalPlanConfirmation and Executetheprocess.`;
+- Your only tools are getFinalPlanConfirmation and Executetheprocess.
+- Call ErrorEncountered when you encountered any kind of ERRORS while calling the tools or executing the workflow.`;

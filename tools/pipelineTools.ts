@@ -6,6 +6,7 @@ import { fileAgentRecord } from '../src/state/fileAgentState.js';
  */
 export const HANDOFF_CATEGORIZATION_SENTINEL = "__HANDOFF_CATEGORIZATION__";
 export const HANDOFF_EXECUTION_SENTINEL = "__HANDOFF_EXECUTION__";
+export const ERROR_ENCOUNTERED = "__ERROR_ENCOUNTERED__";
 
 export const HandOffToCategorizationAgent = ({
     description: "Call this tool ONLY when you have: (1) obtained the folder summary, (2) discussed scope with the user, (3) created the todo list, and (4) recorded all user constraints in the scratchpad. Calling this tool signals that planning is complete and hands control to the Categorization Agent. After calling this tool, your job is done — do not call any other tools.",
@@ -30,6 +31,32 @@ export const HandOffToCategorizationAgent = ({
         state.phase = 'categorization';
         console.log(`\n\x1b[93m[Pipeline]\x1b[0m Planning complete. Handing off to Categorization Agent...\n`);
         return HANDOFF_CATEGORIZATION_SENTINEL;
+    }
+});
+
+export const ErrorEncountered = ({
+    description: "Call this tool when you encountered any kind of error while calling other tools or executing the workflow.",
+    params: {
+        type: "object",
+        properties: {
+            ProcessId: {
+                type: "string",
+                description: "The unique process id for this session."
+            },
+            Error: {
+                type: "string",
+                description: "The error message you have encountered."
+            }
+        },
+        required: ["ProcessId"]
+    },
+    async handler(params: { ProcessId: string, Error: string }): Promise<string> {
+        const state = fileAgentRecord[params.ProcessId];
+        if (!state) return "Error: Invalid ProcessId.";
+
+        console.log(`\n\x1b[93m[Pipeline]\x1b[0m Error Encountered...\n`);
+        console.log(`\n\x1b[93m[Error]\x1b[0m ${params.Error}...\n`);
+        return ERROR_ENCOUNTERED;
     }
 });
 

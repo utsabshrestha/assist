@@ -1,7 +1,7 @@
 import path from "path";
 import { fileAgentRecord, fileStatus } from "../src/state/fileAgentState.js";
 import * as fs from 'fs/promises';
-import { HandOffToCategorizationAgent } from '../tools/pipelineTools.js';
+import { ErrorEncountered, HandOffToCategorizationAgent } from '../tools/pipelineTools.js';
 
 /**
  * Planning Agent 1 — Planning Agent tool set.
@@ -216,7 +216,7 @@ const ManageTodoListTool = ({
         console.log(`\x1b[95m[Master Tool]\x1b[0m ManageTodoListTool (Action: ${params.action})`);
         const state = fileAgentRecord[params.ProcessId];
         if (!state) return "Error: Invalid ProcessId.";
-
+        
         if (params.action === "create") {
             if (!params.todoList) return "Error: todoList is required for 'create' action.";
             state.todoList = params.todoList as any[];
@@ -265,4 +265,5 @@ export const PlanningTools = {
     ManageTodoListTool,
     MemoryScratchpadTool,
     HandOffToCategorizationAgent,
+    ErrorEncountered
 };

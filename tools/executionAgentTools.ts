@@ -3,6 +3,7 @@ import { fileAgentRecord, fileStatus } from "../src/state/fileAgentState.js";
 import * as readline from 'readline';
 import { mkdir } from 'node:fs/promises';
 import { rename } from 'node:fs/promises'
+import { ErrorEncountered } from "./pipelineTools.js";
 
 const getFinalPlanConfirmation = ({
     description: "Prints the complete proposed file movement plan to the console and asks the user for confirmation. Call this ONLY after finalizing all folders for all extensions. The LLM will receive the user's response to either proceed or make changes.",
@@ -173,4 +174,5 @@ const Executetheprocess = ({
 export const ExecutionTools = {
     getFinalPlanConfirmation,
     Executetheprocess,
+    ErrorEncountered
 };

@@ -17,7 +17,7 @@ import { fileAgentRecord, fileAgentState, fileStatus } from '../src/state/fileAg
 import { LLMService } from '../src/LLMService.js';
 import { documentWorkerAgentSystemPrompt, nonDocumentWorkerAgentSystemPrompt, imageWorkerAgentSystemPrompt } from '../src/prompt/fileAgent.js';
 import { GetCategoriesoffilesofspecificextension, GetCategoriesOfImages, UpdateCategoryNameTool, FinalizeThefolderforthefilesforEachExtensions, workerCompletionStatus, FinalizeThefolderforImages, FinalizeThefolderforNonDocuments, GetCategoriesForNonDocuments, UpdateCategoryNameForNonDocumentsTool } from './fileCategorizationTools.js';
-import { HandOffToExecutionAgent } from '../tools/pipelineTools.js';
+import { ERROR_ENCOUNTERED, ErrorEncountered, HandOffToExecutionAgent } from '../tools/pipelineTools.js';
 import { ManageTodoListTool, MemoryScratchpadTool} from '../tools/planningAgentTools.js';
 import { stat } from "fs";
 
@@ -45,8 +45,11 @@ const DocumentCategorizationAgent = ({
         const results : Record<string, string> = {};
         for(const extension of extensions){
             
-            const resutl = await CategorizedDocument(params.ProcessId, extension, llmService);
-            results[extension] = resutl;
+            const result = await CategorizedDocument(params.ProcessId, extension, llmService);
+            if(result.includes(ERROR_ENCOUNTERED)){
+                return `Error encountered during categorizing document of type ${extension}`;
+            }
+            results[extension] = result;
         }
         return JSON.stringify(results);
     }
@@ -67,7 +70,7 @@ async function CategorizedDocument(processId : string, extension : string, llmSe
                     rl.question("\x1b[94mUser (Docs):\x1b[0m ", async (answer) => {
                         rl.close();
                         try {
-                            const response = await session.prompt(answer, { functions: { GetCategoriesoffilesofspecificextension, UpdateCategoryNameTool, FinalizeThefolderforthefilesforEachExtensions } });
+                            const response = await session.prompt(answer, { functions: { GetCategoriesoffilesofspecificextension, UpdateCategoryNameTool, FinalizeThefolderforthefilesforEachExtensions, ErrorEncountered } });
                             console.log(`\x1b[92mAssistant:\x1b[0m ${response}`);
                         } catch (e: any) {
                             console.log(`\x1b[91mError:\x1b[0m ${e.message}`);
@@ -78,16 +81,24 @@ async function CategorizedDocument(processId : string, extension : string, llmSe
                             resolve(`Sucessfully Organized.`);
                             return;
                         }
+                        if(response.includes(ERROR_ENCOUNTERED)){
+                            resolve(ERROR_ENCOUNTERED);
+                            return;
+                        }
                         runLoop();
                     });
                 };
     
                 const response = await session.prompt(`Start organizing ${extension} files for ProcessId: ${processId} and path: ${state.workspacePath}`, 
-                    { functions: { GetCategoriesoffilesofspecificextension, UpdateCategoryNameTool, FinalizeThefolderforthefilesforEachExtensions } });
+                    { functions: { GetCategoriesoffilesofspecificextension, UpdateCategoryNameTool, FinalizeThefolderforthefilesforEachExtensions, ErrorEncountered } });
                 console.log(`\x1b[92mAssistant:\x1b[0m ${response}`);
                 if (workerCompletionStatus[`${processId}_${extension.replaceAll(".","")}`]) {
                     // session discarded
                     resolve(`Sucessfully Organized.`);
+                    return;
+                }
+                if(response.includes(ERROR_ENCOUNTERED)){
+                    resolve(ERROR_ENCOUNTERED);
                     return;
                 }
                 runLoop();
@@ -136,7 +147,7 @@ const NonDocumentCategorizationAgent = ({
                         return;
                     }
                     try {
-                        const response = await session.prompt(answer, { functions: {GetCategoriesForNonDocuments, FinalizeThefolderforNonDocuments, UpdateCategoryNameForNonDocumentsTool } });
+                        const response = await session.prompt(answer, { functions: {GetCategoriesForNonDocuments, FinalizeThefolderforNonDocuments, UpdateCategoryNameForNonDocumentsTool, ErrorEncountered } });
                         console.log(`\x1b[92mAssistant:\x1b[0m ${response}`);
                     } catch (e: any) {
                         console.log(`\x1b[91mError:\x1b[0m ${e.message}`);
@@ -147,17 +158,25 @@ const NonDocumentCategorizationAgent = ({
                         resolve(`Non-document organizing Task is complete.  Continue with next steps.  You can update the status in todo list for this task`);
                         return;
                     }
+                    if(response.includes(ERROR_ENCOUNTERED)){
+                        resolve('Error encountered while organizing non documents');
+                        return;
+                    }
                     runLoop();
                 });
             };
 
             const response = await session.prompt(`Please start the process. ProcessId = ${params.ProcessId}, TaskId = ${params.TaskId}`, 
-            { functions: { GetCategoriesForNonDocuments, FinalizeThefolderforNonDocuments, UpdateCategoryNameForNonDocumentsTool } });
+            { functions: { GetCategoriesForNonDocuments, FinalizeThefolderforNonDocuments, UpdateCategoryNameForNonDocumentsTool, ErrorEncountered } });
             console.log(`\x1b[92mAssistant:\x1b[0m ${response}`);
 
             if (workerCompletionStatus[`${params.ProcessId}_TaskId${params.TaskId}`]) {
                 // session discarded
                 resolve(`Non-document organizing Task is complete.  You can update the status in todo list for this task`);
+                return;
+            }
+            if(response.includes(ERROR_ENCOUNTERED)){
+                resolve('Error encountered while organizing non documents');
                 return;
             }
             runLoop();
@@ -195,10 +214,14 @@ const ImageCategorizationAgent = ({
                 rl.question("\x1b[94mUser (Images):\x1b[0m ", async (answer) => {
                     rl.close();
                     try {
-                        const response = await session.prompt(answer, { functions: { GetCategoriesOfImages, UpdateCategoryNameTool, FinalizeThefolderforImages } });
+                        const response = await session.prompt(answer, { functions: { GetCategoriesOfImages, UpdateCategoryNameTool, FinalizeThefolderforImages, ErrorEncountered  } });
                         console.log(`\x1b[92mAssistant:\x1b[0m ${response}`);
                     } catch (e: any) {
                         console.log(`\x1b[91mError:\x1b[0m ${e.message}`);
+                    }
+                    if(response.includes(ERROR_ENCOUNTERED)){
+                        resolve('Error encountered while organizing images');
+                        return;
                     }
                     const allDone = extensions.every(ext => workerCompletionStatus[`${params.ProcessId}_${ext.replaceAll(".", "")}`]);
                     if (allDone) {
@@ -209,9 +232,13 @@ const ImageCategorizationAgent = ({
                 });
             };
             const response = await session.prompt(`Start organizing these image extensions: [${extensions.join(', ')}] for ProcessId: ${params.ProcessId} and path: ${state.workspacePath}`, 
-            { functions: { GetCategoriesOfImages, UpdateCategoryNameTool, FinalizeThefolderforImages } });
+            { functions: { GetCategoriesOfImages, UpdateCategoryNameTool, FinalizeThefolderforImages, ErrorEncountered  } });
 
             console.log(`\x1b[92mAssistant:\x1b[0m ${response}`);
+            if(response.includes(ERROR_ENCOUNTERED)){
+                resolve('Error encountered while organizing images');
+                return;
+            }
             const allDone = extensions.every(ext => workerCompletionStatus[`${params.ProcessId}_${ext.replaceAll(".", "")}`]);
             if (allDone) {
                 resolve(`Auto-finalized: Image organizing worker finished for ${extensions.join(', ')}. You can update the status in todo list for this task.`);
@@ -229,6 +256,7 @@ export const CategorizationTools = {
     NonDocumentCategorizationAgent,
     ImageCategorizationAgent,
     HandOffToExecutionAgent,
+    ErrorEncountered
 };
 
 

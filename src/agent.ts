@@ -8,6 +8,8 @@ import {
 import { fileAgentRecord, fileAgentState } from './state/fileAgentState.js';
 import { OpenAISession } from './workerAgent.js';
 import {
+    ERROR_ENCOUNTERED,
+    ErrorEncountered,
     HANDOFF_CATEGORIZATION_SENTINEL,
     HANDOFF_EXECUTION_SENTINEL
 } from '../tools/pipelineTools.js';
@@ -17,14 +19,14 @@ import { ExecutionTools } from '../tools/executionAgentTools.js';
 
 class FileAgent {
 
-    public async chatLoop() {
+    public async chatLoop() : Promise<void> {
         console.log("\n\x1b[93m[System]\x1b[0m Loading LLM Server via OpenAI SDK...");
         
         const state = new fileAgentState();
         const processId = crypto.randomUUID();
         state.processId = processId;
         fileAgentRecord[processId] = state;
-        
+        let errorEncountered : boolean = false;
         const llm = await LLMService.getInstance();
 
         console.log("\n\x1b[92m=== File Organization Agent Pipeline ===\x1b[0m");
@@ -58,6 +60,10 @@ class FileAgent {
             if (result1?.includes(HANDOFF_CATEGORIZATION_SENTINEL)) {
                 break;
             }
+            if(result1?.includes(ERROR_ENCOUNTERED)){
+                errorEncountered = true;
+                break;
+            }
 
             const rl = readline.createInterface({
                 input: process.stdin,
@@ -72,6 +78,8 @@ class FileAgent {
                 functions: PlanningTools
             });
         }
+        if(errorEncountered)
+            return;
 
         // ==========================================
         // STAGE 2: Categorization Agent
@@ -89,6 +97,10 @@ class FileAgent {
             if (result2?.includes(HANDOFF_EXECUTION_SENTINEL)) {
                 break;
             }
+            if(result2?.includes(ERROR_ENCOUNTERED)){
+                errorEncountered = true;
+                break;
+            }
 
             const rl = readline.createInterface({
                 input: process.stdin,
@@ -103,6 +115,8 @@ class FileAgent {
                 functions: CategorizationTools
             });
         }
+        if(errorEncountered)
+            return;
 
         // ==========================================
         // STAGE 3: Execution Agent

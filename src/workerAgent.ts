@@ -66,6 +66,9 @@ export class OpenAISession {
                             if (toolResultContent.startsWith("__HANDOFF_")) {
                                 return toolResultContent;
                             }
+                            else if (toolResultContent.startsWith("__ERROR_")) {
+                                return toolResultContent;
+                            }
                         } catch (e: any) {
                             this.messages.push({
                                 role: "tool",
