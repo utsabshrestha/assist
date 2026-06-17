@@ -29,19 +29,19 @@ const GetFolderSummaryTool = ({
         },
         required: ["path", "ProcessId"]
     },
-    async handler(params): Promise<string> {
+    async handler(params: {ProcessId: string, path: string}): Promise<string> {
         emitLog(`getFolderSummary → ${params.path}`, 'tool_call', 'GetFolderSummaryTool');
         const state = fileAgentRecord[params.ProcessId];
         if (!state) return "Error: Invalid ProcessId.";
-        state.workspacePath = params.path;
-
+        
         try {
             await fs.access(params.path);
         } catch {
             return `Error: Workspace folder does not exist: '${params.path}'. Folders must be exist to organize the files.`;
         }
-
+        
         try {
+            state.workspacePath = params.path;
             const entries = await fs.readdir(state.workspacePath, { withFileTypes: true });
             const files = entries
                 .filter((e: Dirent) => e.isFile())
@@ -159,7 +159,7 @@ const MemoryScratchpadTool = ({
         },
         required: ["ProcessId", "action"]
     },
-    async handler(params): Promise<string> {
+    async handler(params: {ProcessId: string, action: string, note: string}): Promise<string> {
         emitLog(`MemoryScratchpadTool (Action: ${params.action})`, 'tool_call', 'MemoryScratchpadTool');
         const state = fileAgentRecord[params.ProcessId];
         if (!state) return "Error: Invalid ProcessId.";
@@ -214,7 +214,7 @@ const ManageTodoListTool = ({
         },
         required: ["ProcessId", "action"]
     },
-    async handler(params): Promise<string> {
+    async handler(params: {ProcessId: string, taskId: number, action: string, notes: string, status: string, todoList: any}): Promise<string> {
         emitLog(`ManageTodoListTool (Action: ${params.action})`, 'tool_call', 'ManageTodoListTool');
         const state = fileAgentRecord[params.ProcessId];
         if (!state) return "Error: Invalid ProcessId.";

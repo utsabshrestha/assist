@@ -1,4 +1,5 @@
 import OpenAI from "openai";
+import { ApiConfig } from "./ApiConfig.js";
 
 export class LLMService {
     private static instance: LLMService | null = null;
@@ -9,8 +10,8 @@ export class LLMService {
 
     private constructor() {
         this.openai = new OpenAI({
-            baseURL: "http://127.0.0.1:8080/v1",
-            apiKey: "local", // Required by SDK, ignored by llama-server by default
+            baseURL: ApiConfig.llmApiEndpoint,
+            apiKey: ApiConfig.llmApiKey, // Required by SDK, ignored by llama-server by default
         });
     }
 

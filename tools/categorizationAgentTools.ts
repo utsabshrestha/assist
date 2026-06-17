@@ -30,7 +30,7 @@ const DocumentCategorizationAgent = ({
         },
         required: ["TaskId", "ProcessId"]
     },
-    async handler(params): Promise<string> {
+    async handler(params: {ProcessId: string, TaskId: number}): Promise<string> {
         emitLog(`DocumentCategorizationAgent for Task : ${params.TaskId}`, 'tool_call', 'DocumentCategorizationAgent');
         
         const state = fileAgentRecord[params.ProcessId];
@@ -114,7 +114,7 @@ const NonDocumentCategorizationAgent = ({
         },
         required: ["path", "TaskId", "ProcessId"]
     },
-    async handler(params): Promise<string> {
+    async handler(params: {ProcessId: string, TaskId: number}): Promise<string> {
         emitLog(`NonDocumentCategorizationAgent for Task ${params.TaskId}`, 'tool_call', 'NonDocumentCategorizationAgent');
 
         const state = fileAgentRecord[params.ProcessId];
@@ -175,9 +175,9 @@ const ImageCategorizationAgent = ({
             ProcessId: { type: "string", description: "The unique process id for this session, provided by the user." },
             TaskId: { type: "number", description: "The Task Id of the todo List"}
         },
-        required: ["path", "ProcessId", "TaskId"]
+        required: ["ProcessId", "TaskId"]
     },
-    async handler(params): Promise<string> {
+    async handler(params: {ProcessId: string, TaskId: number}): Promise<string> {
         emitLog(`ImageCategorizationAgent for Task : ${params.TaskId}`, 'tool_call', 'ImageCategorizationAgent');
         const state = fileAgentRecord[params.ProcessId];
         if (!state) return "Error: Invalid ProcessId.";

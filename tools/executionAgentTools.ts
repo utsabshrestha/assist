@@ -3,7 +3,7 @@ import { fileAgentRecord, fileStatus } from "../src/state/fileAgentState.js";
 import { mkdir } from 'node:fs/promises';
 import { rename } from 'node:fs/promises'
 import { ErrorEncountered } from "./pipelineTools.js";
-import { emitLog, requestUserInput } from "../electron/ipcBridge.js";
+import { emitAgentMessage, emitLog, requestUserInput } from "../electron/ipcBridge.js";
 
 const getFinalPlanConfirmation = ({
     description: "Prints the complete proposed file movement plan to the UI and asks the user for confirmation. Call this ONLY after finalizing all folders for all extensions. The LLM will receive the user's response to either proceed or make changes.",
@@ -17,7 +17,7 @@ const getFinalPlanConfirmation = ({
         },
         required: ["ProcessId"]
     },
-    async handler(params): Promise<string> {
+    async handler(params: {ProcessId: string}): Promise<string> {
         const state = fileAgentRecord[params.ProcessId];
         if (!state) return "Error: Invalid ProcessId.";
 
@@ -46,7 +46,8 @@ const getFinalPlanConfirmation = ({
         }
         planText += "=".repeat(48);
 
-        emitLog(planText, 'info', 'ExecutionPlan');
+        // emitLog(planText, 'info', 'ExecutionPlan');
+        emitAgentMessage(planText, 'agent');
 
         // Ask the user for confirmation via the UI input box
         const answer = await requestUserInput("Confirm plan? [Type 'confirm' to proceed, or describe changes]");
@@ -75,7 +76,7 @@ const Executetheprocess = ({
         },
         required: ["ProcessId"]
     },
-    async handler(params): Promise<string> {
+    async handler(params: {ProcessId: string}): Promise<string> {
         emitLog(`Executetheprocess started`, 'tool_call', 'Executetheprocess');
         const state = fileAgentRecord[params.ProcessId];
         if (!state) return "Error: Invalid ProcessId.";

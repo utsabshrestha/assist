@@ -64,6 +64,9 @@ Renderer Process (React + Vite)
 # Development (hot-reload)
 npm run electron:dev
 
+# Debug run vite
+npm run dev:renderer
+
 # Build for production
 npm run electron:build
 ```

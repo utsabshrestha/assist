@@ -107,7 +107,7 @@ export const ChatPanel: React.FC<ChatPanelProps> = ({
             <div className="text-center">
               <h1 className="text-2xl font-semibold text-[#1c1917] tracking-tight mb-2">File Assist</h1>
               <p className="text-sm text-[#78716c] max-w-sm leading-relaxed">
-                Select a folder and let the AI agent plan, categorize, and organize your files.
+                Select a folder and let the File assist help you plan, categorize, and organize your files.
               </p>
             </div>
 

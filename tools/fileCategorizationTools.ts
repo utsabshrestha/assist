@@ -4,6 +4,8 @@ import { fileAgentRecord } from '../src/state/fileAgentState.js';
 import { FileClassificationTool } from './fileClassificationTool.js';
 import { ImageClassificationTool } from './imageClassificationTool.js';
 import { stat } from 'fs';
+import { Items } from 'openai/resources/conversations.mjs';
+import { requestUserInput } from '../electron/ipcBridge.js';
 
 export const workerCompletionStatus: Record<string, boolean> = {};
 
@@ -12,10 +14,6 @@ export const GetCategoriesOfImages = ({
     params: {
         type: "object",
         properties: {
-            path: {
-                type: "string",
-                description: "Absolute path of the folder to analyze."
-            },
             ProcessId: {
                 type: "string",
                 description: "The unique process id for this session, provided by the user."
@@ -26,16 +24,15 @@ export const GetCategoriesOfImages = ({
                 description: "Array of image extensions to categorize together (e.g. ['.jpg', '.png', '.jpeg'])."
             }
         },
-        required: ["path", "ProcessId", "extensions"]
+        required: [ "ProcessId", "extensions"]
     },
-    async handler(params): Promise<string> {
-        console.log(`\x1b[95m[Worker Tool]\x1b[0m GetCategoriesOfImages → ${params.path} for ${params.extensions.join(', ')}`);
+    async handler(params: {ProcessId: string, extensions: string[]}): Promise<string> {
+        console.log(`\x1b[95m[Worker Tool]\x1b[0m GetCategoriesOfImages → ${params.ProcessId} for ${params.extensions.join(', ')}`);
         try {
             const state = fileAgentRecord[params.ProcessId];
             if (!state) return "Error: Invalid ProcessId.";
             if (!state.workspacePath) return "Error: workspacePath not set in state.";
 
-            state.workspacePath = params.path;
 
             // Collect all image files across the requested extensions
             const allImageFiles: string[] = [];
@@ -97,10 +94,10 @@ export const GetCategoriesoffilesofspecificextension = ({
                 description: "The file extension which you want to get categorical summary of. eg: `.pdf`"
             }
         },
-        required: ["path", "ProcessId"]
+        required: ["extension", "ProcessId"]
     },
-    async handler(params): Promise<string> {
-        console.log(`\x1b[95m[Worker Tool]\x1b[0m GetCategoricalSummaryOfFiles → ${params.path}`);
+    async handler(params: {ProcessId: string, extension: string}): Promise<string> {
+        console.log(`\x1b[95m[Worker Tool]\x1b[0m GetCategoricalSummaryOfFiles → ${params.ProcessId}`);
         try {
             const state = fileAgentRecord[params.ProcessId];
             if (!state) return "Error: Invalid ProcessId.";
@@ -144,7 +141,7 @@ export const GetCategoriesoffilesofspecificextension = ({
 });
 
 export const UpdateCategoryNameTool = ({
-    description: "Updates the category name for files that currently belong to an old category. Use this when the user wants to rename a proposed category before finalizing folders.",
+    description: "Updates the category name for files that currently belong to an old category. Use this when the user wants to rename a proposed category before finalizing folders. This tool can also combine two category by combining old category to new category. This tool also can combine two folders by combining old folder to the new folder.",
     params: {
         type: "object",
         properties: {
@@ -155,7 +152,7 @@ export const UpdateCategoryNameTool = ({
         },
         required: ["ProcessId", "extension", "oldCategoryName", "newCategoryName"]
     },
-    async handler(params): Promise<string> {
+    async handler(params: {ProcessId: string, extension: string, oldCategoryName: string, newCategoryName: string}): Promise<string> {
         console.log(`\x1b[95m[Worker Tool]\x1b[0m UpdateCategoryNameTool -> '${params.oldCategoryName}' to '${params.newCategoryName}'`);
         const state = fileAgentRecord[params.ProcessId];
         if (!state) return "Error: Invalid ProcessId.";
@@ -214,7 +211,7 @@ export const FinalizeThefolderforthefilesforEachExtensions = ({
         },
         required: ["json", "ProcessId"]
     },
-    async handler(params): Promise<string> {
+    async handler(params: {ProcessId: string, json: any}): Promise<string> {
         console.log(`\x1b[95m[Worker Tool]\x1b[0m FinalizeThefolderforthefilesforEachExtensions → ${params.ProcessId}`);
         const state = fileAgentRecord[params.ProcessId];
         if (!state) return "Error: Invalid ProcessId.";
@@ -294,7 +291,7 @@ export const FinalizeThefolderforImages = ({
         },
         required: ["json", "ProcessId"]
     },
-    async handler(params): Promise<string> {
+    async handler(params: {ProcessId: string, json: any}): Promise<string> {
         console.log(`\x1b[95m[Worker Tool]\x1b[0m FinalizeThefolderforImages → ${params.ProcessId}`);
         const state = fileAgentRecord[params.ProcessId];
         if (!state) return "Error: Invalid ProcessId.";
@@ -374,7 +371,7 @@ export const FinalizeThefolderforNonDocuments = ({
         },
         required: ["json", "ProcessId"]
     },
-    async handler(params): Promise<string> {
+    async handler(params: {ProcessId: string, TaskId: number, json: any}): Promise<string> {
         console.log(`\x1b[95m[Worker Tool]\x1b[0m FinalizeThefolderforImages → ${params.ProcessId}`);
         const state = fileAgentRecord[params.ProcessId];
         if (!state) return "Error: Invalid ProcessId.";
@@ -475,9 +472,9 @@ export const UpdateCategoryNameForNonDocumentsTool = ({
             oldCategoryName: { type: "string", description: "The existing category name to be changed." },
             newCategoryName: { type: "string", description: "The new category name requested by the user." }
         },
-        required: ["ProcessId", "extension", "oldCategoryName", "newCategoryName"]
+        required: ["ProcessId", "TaskId", "oldCategoryName", "newCategoryName"]
     },
-    async handler(params): Promise<string> {
+    async handler(params: {ProcessId: string, TaskId: number, oldCategoryName: string, newCategoryName: string}): Promise<string> {
         console.log(`\x1b[95m[Worker Tool]\x1b[0m UpdateCategoryNameTool -> '${params.oldCategoryName}' to '${params.newCategoryName}'`);
         const state = fileAgentRecord[params.ProcessId];
         if (!state) return "Error: Invalid ProcessId.";
@@ -495,5 +492,34 @@ export const UpdateCategoryNameForNonDocumentsTool = ({
         }
 
         return `Successfully updated category name from '${params.oldCategoryName}' to '${params.newCategoryName}'`;
+    }
+});
+
+export const RequestFolderApproval = ({
+    description: "Call this tool when you have decided on a folder structure and need the user's explicit approval before finalizing them.",
+    params: {
+        type: "object",
+        properties: {
+            ProcessId:{ type: "string"},
+            TaskId: { type: "number", description: "Task id of the task you are working on" },
+            ProposedFolders: { 
+                type: "array", 
+                items: {
+                    type: "string"
+                },
+                description: "The list of absolute or relative folder paths you propose to create." 
+            },
+        },
+        required: ["ProcessId", "TaskId", "proposed_folders"]
+    },
+    async handler(params : {ProcessId: string,TaskId: number,  ProposedFolders: string[]}): Promise<string> {
+        console.log(`\x1b[95m[Worker Tool]\x1b[0m RequestFolderApproval -> '${params.ProcessId}' to '${params.TaskId}'`);
+        const state = fileAgentRecord[params.ProcessId];
+        if (!state) return "Error: Invalid ProcessId.";
+        
+        return new Promise(async (resolve) => {
+            var response = await requestUserInput("Request folder Approval");
+        }
+
     }
 });
