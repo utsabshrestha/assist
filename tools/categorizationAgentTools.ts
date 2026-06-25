@@ -15,7 +15,7 @@ import * as path from 'path';
 import { fileAgentRecord, fileAgentState, fileStatus } from '../src/state/fileAgentState.js';
 import { LLMService } from '../src/LLMService.js';
 import { documentWorkerAgentSystemPrompt, nonDocumentWorkerAgentSystemPrompt, imageWorkerAgentSystemPrompt } from '../src/prompt/fileAgent.js';
-import { GetCategoriesoffilesofspecificextension, GetCategoriesOfImages, UpdateCategoryNameTool, FinalizeThefolderforthefilesforEachExtensions, workerCompletionStatus, FinalizeThefolderforImages, FinalizeThefolderforNonDocuments, GetCategoriesForNonDocuments, UpdateCategoryNameForNonDocumentsTool, PresentFolderPlanTool } from './fileCategorizationTools.js';
+import { GetCategoriesoffilesofspecificextension, GetCategoriesOfImages, UpdateCategoryNameTool, FinalizeThefolderforthefilesforEachExtensions, workerCompletionStatus, FinalizeThefolderforImages, FinalizeThefolderforNonDocuments, GetCategoriesForNonDocuments, UpdateCategoryNameForNonDocumentsTool, PresentFolderPlanTool, PresentDocumentFolderPlanTool } from './fileCategorizationTools.js';
 import { ERROR_ENCOUNTERED, ErrorEncountered, HandOffToExecutionAgent } from '../tools/pipelineTools.js';
 import { ManageTodoListTool, MemoryScratchpadTool} from '../tools/planningAgentTools.js';
 import { emitLog, requestUserInput } from '../electron/ipcBridge.js';
@@ -67,7 +67,7 @@ async function CategorizedDocument(processId : string, extension : string, llmSe
                 
                 let response = '';
                 try {
-                    response = await session.prompt(answer, { functions: { GetCategoriesoffilesofspecificextension, PresentFolderPlanTool, UpdateCategoryNameTool, FinalizeThefolderforthefilesforEachExtensions, ErrorEncountered } });
+                    response = await session.prompt(answer, { functions: { GetCategoriesoffilesofspecificextension, PresentDocumentFolderPlanTool, UpdateCategoryNameTool, FinalizeThefolderforthefilesforEachExtensions, ErrorEncountered }, forceToolUse: true });
                     emitLog(response, 'info', 'DocWorkerAgent');
                 } catch (e: any) {
                     emitLog(`Error: ${e.message}`, 'error', 'DocWorkerAgent');
@@ -84,8 +84,8 @@ async function CategorizedDocument(processId : string, extension : string, llmSe
                 await runLoop();
             };
 
-            const response = await session.prompt(`Start organizing ${extension} files for ProcessId: ${processId} and path: ${state.workspacePath}`, 
-                { functions: { GetCategoriesoffilesofspecificextension, PresentFolderPlanTool, UpdateCategoryNameTool, FinalizeThefolderforthefilesforEachExtensions, ErrorEncountered } });
+            const response = await session.prompt(`Start organizing ${extension} files for ProcessId: ${processId} and path: ${state.workspacePath}`,
+                { functions: { GetCategoriesoffilesofspecificextension, PresentDocumentFolderPlanTool, UpdateCategoryNameTool, FinalizeThefolderforthefilesforEachExtensions, ErrorEncountered }, forceToolUse: true });
             emitLog(response, 'info', 'DocWorkerAgent');
 
             if (workerCompletionStatus[`${processId}_${extension.replaceAll(".","")}`]) {

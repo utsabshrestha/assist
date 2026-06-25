@@ -7,15 +7,16 @@
  */
 
 import { contextBridge, ipcRenderer } from 'electron';
-import type { AgentMessage, AgentLog, AgentStageEvent, FolderReviewRequest, FolderReviewResponse } from './ipcBridge.js';
+import type { AgentMessage, AgentLog, AgentStageEvent, FolderReviewRequest, FolderReviewResponse, ScopeSelectionRequest, ScopeSelectionResponse, CategorySummary } from './ipcBridge.js';
 
 // Re-export types for renderer consumption
-export type { AgentMessage, AgentLog, AgentStageEvent, FolderReviewRequest, FolderReviewResponse };
+export type { AgentMessage, AgentLog, AgentStageEvent, FolderReviewRequest, FolderReviewResponse, ScopeSelectionRequest, ScopeSelectionResponse, CategorySummary };
 
 export interface ElectronAPI {
   // Renderer → Main
   sendInput: (inputId: string, value: string) => void;
   sendFolderReview: (inputId: string, action: 'approve' | 'message', message?: string) => void;
+  sendScopeSelection: (inputId: string, action: 'submit' | 'message', selected?: CategorySummary, message?: string) => void;
   startAgent: (userMessage: string) => void;
   selectFolder: () => Promise<string | null>;
 
@@ -25,6 +26,7 @@ export interface ElectronAPI {
   onStage: (callback: (event: AgentStageEvent) => void) => () => void;
   onInputRequest: (callback: (payload: { promptLabel: string; inputId: string }) => void) => () => void;
   onFolderReviewRequest: (callback: (payload: FolderReviewRequest) => void) => () => void;
+  onScopeSelectionRequest: (callback: (payload: ScopeSelectionRequest) => void) => () => void;
 }
 
 contextBridge.exposeInMainWorld('electronAPI', {
@@ -35,6 +37,16 @@ contextBridge.exposeInMainWorld('electronAPI', {
   sendFolderReview: (inputId: string, action: 'approve' | 'message', message?: string) => {
     const payload: FolderReviewResponse = { inputId, action, ...(message !== undefined ? { message } : {}) };
     ipcRenderer.send('agent:folder_review_response', payload);
+  },
+
+  sendScopeSelection: (inputId: string, action: 'submit' | 'message', selected?: CategorySummary, message?: string) => {
+    const payload: ScopeSelectionResponse = {
+      inputId,
+      action,
+      ...(selected !== undefined ? { selected } : {}),
+      ...(message !== undefined ? { message } : {})
+    };
+    ipcRenderer.send('agent:scope_selection_response', payload);
   },
 
 
@@ -74,5 +86,11 @@ contextBridge.exposeInMainWorld('electronAPI', {
     const handler = (_: Electron.IpcRendererEvent, payload: FolderReviewRequest) => callback(payload);
     ipcRenderer.on('agent:folder_review_request', handler);
     return () => ipcRenderer.removeListener('agent:folder_review_request', handler);
+  },
+
+  onScopeSelectionRequest: (callback: (payload: ScopeSelectionRequest) => void) => {
+    const handler = (_: Electron.IpcRendererEvent, payload: ScopeSelectionRequest) => callback(payload);
+    ipcRenderer.on('agent:scope_selection_request', handler);
+    return () => ipcRenderer.removeListener('agent:scope_selection_request', handler);
   },
 } satisfies ElectronAPI);

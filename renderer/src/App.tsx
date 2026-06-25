@@ -1,5 +1,5 @@
 import React, { useEffect, useState, useCallback, useRef } from 'react';
-import type { AgentMessage, AgentLog, AgentStage, FolderReviewRequest } from './types/electron.js';
+import type { AgentMessage, AgentLog, AgentStage, FolderReviewRequest, ScopeSelectionRequest, CategorySummary } from './types/electron.js';
 import { ChatPanel } from './components/ChatPanel.js';
 import { LogPanel } from './components/LogPanel.js';
 import { StageBadge } from './components/StageBadge.js';
@@ -13,6 +13,7 @@ const App: React.FC = () => {
   const [logPanelVisible, setLogPanelVisible] = useState(true);
   const [pendingInput, setPendingInput] = useState<{ promptLabel: string; inputId: string } | null>(null);
   const [pendingFolderReview, setPendingFolderReview] = useState<FolderReviewRequest | null>(null);
+  const [pendingScopeSelection, setPendingScopeSelection] = useState<ScopeSelectionRequest | null>(null);
 
   // Drag-to-resize state
   const [chatWidth, setChatWidth] = useState(60);
@@ -50,12 +51,18 @@ const App: React.FC = () => {
       setPendingFolderReview(payload);
     });
 
+    const removeScopeSelectionRequest = api.onScopeSelectionRequest((payload) => {
+      setIsThinking(false);
+      setPendingScopeSelection(payload);
+    });
+
     return () => {
       removeMessage();
       removeLog();
       removeStage();
       removeInputRequest();
       removeFolderReviewRequest();
+      removeScopeSelectionRequest();
     };
   }, []);
 
@@ -90,6 +97,12 @@ const App: React.FC = () => {
     setPendingFolderReview(null);
     setIsThinking(true);
     window.electronAPI?.sendFolderReview(inputId, action, message);
+  }, []);
+
+  const handleScopeSelectionSubmit = useCallback((inputId: string, action: 'submit' | 'message', selected?: CategorySummary, message?: string) => {
+    setPendingScopeSelection(null);
+    setIsThinking(true);
+    window.electronAPI?.sendScopeSelection(inputId, action, selected, message);
   }, []);
 
   // ==========================================
@@ -183,9 +196,11 @@ const App: React.FC = () => {
             isThinking={isThinking}
             pendingInput={pendingInput}
             pendingFolderReview={pendingFolderReview}
+            pendingScopeSelection={pendingScopeSelection}
             onSendMessage={handleSendMessage}
             onSubmitInput={handleSubmitInput}
             onFolderReviewSubmit={handleFolderReviewSubmit}
+            onScopeSelectionSubmit={handleScopeSelectionSubmit}
             hasStarted={hasStarted}
             onStart={handleStart}
           />

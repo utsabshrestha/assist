@@ -4,6 +4,11 @@ export interface FolderPlanEntry {
     category: string;
     folder: string; // full absolute path
 }
+export interface CategorySummary {
+    documents: string[];
+    images: string[];
+    "non-documents": string[];
+}
 export type AgentPhase = 'planning' | 'categorization' | 'execution' | 'done';
 export interface TodoItem {
     id: number;
@@ -32,6 +37,13 @@ export class fileAgentState {
      * This is the ground-truth the LLM reads back from tool responses — never from its own memory.
      */
     public proposedFolderPlan: Record<string, FolderPlanEntry[]> = {};
+    /**
+     * Category → extension list computed by GetFolderSummaryTool's scan.
+     * Read directly by PresentScopeSelectionTool — never reconstructed by the LLM.
+     */
+    public categorySummary: CategorySummary = { documents: [], images: [], "non-documents": [] };
+    public fileCountByExtension: Record<string, number> = {};
+    public totalFileSizeLabel: string = "";
 
     public AddFile(file : fileStatus){
         if (this.fileByExtension[file.ext] == undefined){

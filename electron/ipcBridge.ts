@@ -10,14 +10,14 @@
 
 import { BrowserWindow, ipcMain } from 'electron';
 import { EventEmitter } from 'events';
-import type { FolderPlanEntry } from '../src/state/fileAgentState.js';
+import type { FolderPlanEntry, CategorySummary } from '../src/state/fileAgentState.js';
 
 export type MessageType = 'agent' | 'user' | 'system';
 export type LogType = 'tool_call' | 'tool_result' | 'pipeline' | 'error' | 'info';
 export type AgentStage = 'planning' | 'categorization' | 'execution' | 'done' | 'idle';
 
 // Re-export so consumers don't need a separate import
-export type { FolderPlanEntry };
+export type { FolderPlanEntry, CategorySummary };
 
 export interface AgentMessage {
   type: MessageType;
@@ -51,6 +51,23 @@ export interface FolderReviewResponse {
   message?: string; // populated when action === 'message'
 }
 
+/** Sent from main → renderer to show the structured scope-selection checklist. */
+export interface ScopeSelectionRequest {
+  inputId: string;
+  categories: CategorySummary;
+  fileCountByExtension: Record<string, number>;
+  totalFileCount: number;
+  totalFileSize: string;
+}
+
+/** Sent from renderer → main after the user submits the checklist or a change request. */
+export interface ScopeSelectionResponse {
+  inputId: string;
+  action: 'submit' | 'message';
+  selected?: CategorySummary; // populated when action === 'submit'; only checked categories included
+  message?: string; // populated when action === 'message'
+}
+
 // Internal event emitter to receive user input from the renderer
 const inputEmitter = new EventEmitter();
 let mainWindow: BrowserWindow | null = null;
@@ -70,6 +87,11 @@ export function setMainWindow(win: BrowserWindow): void {
 
   // Listen for structured folder review responses (Approve or Message)
   ipcMain.on('agent:folder_review_response', (_event, payload: FolderReviewResponse) => {
+    inputEmitter.emit(`input:${payload.inputId}`, payload);
+  });
+
+  // Listen for structured scope selection responses (Submit or Message)
+  ipcMain.on('agent:scope_selection_response', (_event, payload: ScopeSelectionResponse) => {
     inputEmitter.emit(`input:${payload.inputId}`, payload);
   });
 }
@@ -137,5 +159,27 @@ export function requestFolderReview(extension: string, folders: FolderPlanEntry[
 
     const request: FolderReviewRequest = { inputId, extension, folders };
     mainWindow?.webContents.send('agent:folder_review_request', request);
+  });
+}
+
+/**
+ * Show the structured scope-selection checklist in the renderer.
+ * Blocks until the user submits the checklist or sends a change request.
+ */
+export function requestScopeSelection(
+  categories: CategorySummary,
+  fileCountByExtension: Record<string, number>,
+  totalFileCount: number,
+  totalFileSize: string
+): Promise<ScopeSelectionResponse> {
+  return new Promise((resolve) => {
+    const inputId = `scope_selection_${++inputIdCounter}_${Date.now()}`;
+
+    inputEmitter.once(`input:${inputId}`, (payload: ScopeSelectionResponse) => {
+      resolve(payload);
+    });
+
+    const request: ScopeSelectionRequest = { inputId, categories, fileCountByExtension, totalFileCount, totalFileSize };
+    mainWindow?.webContents.send('agent:scope_selection_request', request);
   });
 }

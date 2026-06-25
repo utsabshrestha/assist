@@ -11,7 +11,7 @@ export class OpenAISession {
         this.messages.push({ role: "system", content: systemPrompt });
     }
 
-    public async prompt(userPrompt: string | OpenAI.Chat.Completions.ChatCompletionContentPart[], options: { functions?: Record<string, any> } = {}): Promise<string> {
+    public async prompt(userPrompt: string | OpenAI.Chat.Completions.ChatCompletionContentPart[], options: { functions?: Record<string, any>, forceToolUse?: boolean } = {}): Promise<string> {
         this.messages.push({ role: "user", content: userPrompt });
 
         let tools: OpenAI.Chat.Completions.ChatCompletionTool[] = [];
@@ -26,6 +26,11 @@ export class OpenAISession {
             }));
         }
 
+        const toolNames = Object.keys(options.functions || {});
+        let noToolCallRetries = 0;
+        const MAX_NO_TOOL_CALL_RETRIES = 3;
+        let madeAnyToolCallThisPrompt = false;
+
         while (true) {
             // @ts-ignore
             const response = await this.llm.openai.chat.completions.create({
@@ -37,6 +42,24 @@ export class OpenAISession {
 
             const msg = response.choices[0]?.message;
             if (!msg) break;
+
+            const hasToolCalls = !!msg.tool_calls && msg.tool_calls.length > 0;
+
+            // Tool-only worker replied with plain text instead of calling a tool —
+            // nudge it to retry, but only if it hasn't already done its tool work this turn.
+            // Once a tool has been called, a later plain-text reply is the model wrapping up
+            // (e.g. a final confirmation message), not skipping a required call.
+            if (options.forceToolUse && !hasToolCalls && !madeAnyToolCallThisPrompt && noToolCallRetries < MAX_NO_TOOL_CALL_RETRIES) {
+                noToolCallRetries++;
+                this.messages.push(msg);
+                emitLog(`Worker replied with text instead of a tool call (retry ${noToolCallRetries}/${MAX_NO_TOOL_CALL_RETRIES})`, 'error');
+                this.messages.push({
+                    role: "user",
+                    content: `You must respond ONLY by calling one of these tools: ${toolNames.join(', ')}. Do not reply with plain text. Call the appropriate tool now.`
+                });
+                continue;
+            }
+
             this.messages.push(msg);
 
             if (msg.content) {
@@ -45,10 +68,11 @@ export class OpenAISession {
             }
 
             if (msg.tool_calls && msg.tool_calls.length > 0) {
+                madeAnyToolCallThisPrompt = true;
                 for (const toolCall of msg.tool_calls) {
                     const funcCall = (toolCall as any).function;
                     if (!funcCall) continue;
-                    
+
                     // Log tool calls to the side panel
                     emitLog(`${funcCall.name}(${funcCall.arguments})`, 'tool_call', funcCall.name);
                     

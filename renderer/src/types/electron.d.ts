@@ -36,10 +36,27 @@ export interface FolderReviewRequest {
   folders: FolderPlanEntry[];
 }
 
+/** Category → extension list, e.g. { documents: ['.pdf', '.docx'], images: [...], "non-documents": [...] } */
+export interface CategorySummary {
+  documents: string[];
+  images: string[];
+  "non-documents": string[];
+}
+
+/** Payload sent from main → renderer to render the scope-selection checklist. */
+export interface ScopeSelectionRequest {
+  inputId: string;
+  categories: CategorySummary;
+  fileCountByExtension: Record<string, number>;
+  totalFileCount: number;
+  totalFileSize: string;
+}
+
 export interface ElectronAPI {
   // Renderer → Main
   sendInput: (inputId: string, value: string) => void;
   sendFolderReview: (inputId: string, action: 'approve' | 'message', message?: string) => void;
+  sendScopeSelection: (inputId: string, action: 'submit' | 'message', selected?: CategorySummary, message?: string) => void;
   startAgent: (userMessage: string) => void;
   selectFolder: () => Promise<string | null>;
 
@@ -49,6 +66,7 @@ export interface ElectronAPI {
   onStage: (callback: (event: AgentStageEvent) => void) => () => void;
   onInputRequest: (callback: (payload: { promptLabel: string; inputId: string }) => void) => () => void;
   onFolderReviewRequest: (callback: (payload: FolderReviewRequest) => void) => () => void;
+  onScopeSelectionRequest: (callback: (payload: ScopeSelectionRequest) => void) => () => void;
 }
 
 declare global {

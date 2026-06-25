@@ -3,7 +3,7 @@ import { fileAgentRecord, fileStatus } from "../src/state/fileAgentState.js";
 import * as fs from 'fs/promises';
 import type { Dirent } from 'fs';
 import { ErrorEncountered, HandOffToCategorizationAgent } from '../tools/pipelineTools.js';
-import { emitLog } from '../electron/ipcBridge.js';
+import { emitLog, emitAgentMessage, requestScopeSelection } from '../electron/ipcBridge.js';
 
 /**
  * Planning Agent 1 — Planning Agent tool set.
@@ -25,12 +25,17 @@ const GetFolderSummaryTool = ({
             ProcessId: {
                 type: "string",
                 description: "The unique process id for this session, provided by the user."
+            },
+            statusMessage: {
+                type: "string",
+                description: "A short, friendly first-person message telling the user what you're about to do, e.g. 'Scanning your folder for files...'. This will be shown directly to the user."
             }
         },
-        required: ["path", "ProcessId"]
+        required: ["path", "ProcessId", "statusMessage"]
     },
-    async handler(params: {ProcessId: string, path: string}): Promise<string> {
+    async handler(params: {ProcessId: string, path: string, statusMessage: string}): Promise<string> {
         emitLog(`getFolderSummary → ${params.path}`, 'tool_call', 'GetFolderSummaryTool');
+        emitAgentMessage(params.statusMessage);
         const state = fileAgentRecord[params.ProcessId];
         if (!state) return "Error: Invalid ProcessId.";
         
@@ -116,16 +121,57 @@ const GetFolderSummaryTool = ({
             state.filesCount = files.length;
             state.extensions = extensions;
             state.lastReadInd = 0;
+            state.categorySummary = categories;
+            state.fileCountByExtension = fileCountByExt;
+            state.totalFileSizeLabel = `${(totalFileSize / 1024).toFixed(2)} MB`;
 
-            return JSON.stringify({
-                TotalFileCount: files.length,
-                TotalFileSize: `${(totalFileSize / 1024).toFixed(2)} MB`,
-                categories: categories,
-                FileCountByExtension: fileCountByExt
-            });
+            const categoryCount = Object.values(categories).filter(list => list.length > 0).length;
+            return `Folder scanned: ${files.length} files found across ${categoryCount} categories. Call PresentScopeSelectionTool now to let the user choose what to organize.`;
         } catch (e: any) {
             return `We have encountered Error reading folder: ${e.message}, please report to the user immediately.`;
         }
+    }
+});
+
+const PresentScopeSelectionTool = ({
+    description: "Presents the folder's file categories (documents, images, non-documents) to the user via a structured checklist UI so they can pick what to organize. Call this immediately after GetFolderSummaryTool — do NOT describe the categories yourself in chat. Returns the user's selected categories and their extensions as JSON to use directly when building the todo list, or a USER_MESSAGE if the user typed a custom request instead.",
+    params: {
+        type: "object",
+        properties: {
+            ProcessId: { type: "string", description: "The unique process id for this session." },
+            statusMessage: {
+                type: "string",
+                description: "A short, friendly first-person message shown to the user before the checklist appears, e.g. 'Here's what I found — pick what you'd like organized.'"
+            }
+        },
+        required: ["ProcessId", "statusMessage"]
+    },
+    async handler(params: { ProcessId: string; statusMessage: string }): Promise<string> {
+        emitLog(`PresentScopeSelectionTool → ${params.ProcessId}`, 'tool_call', 'PresentScopeSelectionTool');
+        emitAgentMessage(params.statusMessage);
+        const state = fileAgentRecord[params.ProcessId];
+        if (!state) return "Error: Invalid ProcessId.";
+
+        const response = await requestScopeSelection(
+            state.categorySummary,
+            state.fileCountByExtension,
+            state.filesCount,
+            state.totalFileSizeLabel
+        );
+
+        if (response.action === 'message') {
+            return `USER_MESSAGE: ${response.message ?? 'User declined without a message. Ask what they would like to change.'}`;
+        }
+
+        const selected = response.selected ?? { documents: [], images: [], "non-documents": [] };
+        const tasks = Object.entries(selected)
+            .filter(([, extensionList]) => extensionList.length > 0)
+            .map(([category, extensionList]) => ({ category, extensionList }));
+
+        return JSON.stringify({
+            selection: "SCOPE_SELECTED",
+            tasks
+        });
     }
 });
 
@@ -210,12 +256,17 @@ const ManageTodoListTool = ({
             },
             taskId: { type: "number", description: "Used ONLY when action is 'update_task'. The ID of the task to update." },
             status: { type: "string", enum: ["not-started", "in-progress", "completed", "failed", "blocked"], description: "Used ONLY when action is 'update_task'. The new status." },
-            notes: { type: "string", description: "Optional notes when updating a task." }
+            notes: { type: "string", description: "Optional notes when updating a task." },
+            statusMessage: {
+                type: "string",
+                description: "A short, friendly first-person message telling the user what you're about to do, e.g. 'Creating a todo list for your files...'. This will be shown directly to the user."
+            }
         },
-        required: ["ProcessId", "action"]
+        required: ["ProcessId", "action", "todoList", "statusMessage"]
     },
-    async handler(params: {ProcessId: string, taskId: number, action: string, notes: string, status: string, todoList: any}): Promise<string> {
+    async handler(params: {ProcessId: string, taskId: number, action: string, notes: string, status: string, todoList: any, statusMessage: string}): Promise<string> {
         emitLog(`ManageTodoListTool (Action: ${params.action})`, 'tool_call', 'ManageTodoListTool');
+        emitAgentMessage(params.statusMessage);
         const state = fileAgentRecord[params.ProcessId];
         if (!state) return "Error: Invalid ProcessId.";
         
@@ -264,6 +315,7 @@ export {
 
 export const PlanningTools = {
     GetFolderSummaryTool,
+    PresentScopeSelectionTool,
     ManageTodoListTool,
     MemoryScratchpadTool,
     HandOffToCategorizationAgent,

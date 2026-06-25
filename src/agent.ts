@@ -42,7 +42,8 @@ export class FileAgent {
 
         // Seed the planning agent with the user's initial message
         let result1 = await session1.prompt(initialUserMessage, {
-            functions: PlanningTools
+            functions: PlanningTools,
+            forceToolUse: true
         });
 
         while (true) {
@@ -59,7 +60,8 @@ export class FileAgent {
             if (userInput.toLowerCase() === 'exit' || userInput.toLowerCase() === 'quit') return;
 
             result1 = await session1.prompt(userInput, {
-                functions: PlanningTools
+                functions: PlanningTools,
+                forceToolUse: true
             });
         }
         if (errorEncountered) return;

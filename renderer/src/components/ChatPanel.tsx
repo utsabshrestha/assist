@@ -1,8 +1,9 @@
 import React, { useEffect, useRef, useState, useCallback } from 'react';
-import type { AgentMessage, AgentStage, FolderReviewRequest } from '../types/electron.js';
+import type { AgentMessage, AgentStage, FolderReviewRequest, ScopeSelectionRequest, CategorySummary } from '../types/electron.js';
 import { MessageBubble, TypingIndicator } from './MessageBubble.js';
 import { StageProgressBar } from './StageProgressBar.js';
 import { FolderReviewPanel } from './FolderReviewPanel.js';
+import { ScopeSelectionPanel } from './ScopeSelectionPanel.js';
 
 interface ChatPanelProps {
   messages: AgentMessage[];
@@ -10,9 +11,11 @@ interface ChatPanelProps {
   isThinking: boolean;
   pendingInput: { promptLabel: string; inputId: string } | null;
   pendingFolderReview: FolderReviewRequest | null;
+  pendingScopeSelection: ScopeSelectionRequest | null;
   onSendMessage: (text: string) => void;
   onSubmitInput: (inputId: string, value: string) => void;
   onFolderReviewSubmit: (inputId: string, action: 'approve' | 'message', message?: string) => void;
+  onScopeSelectionSubmit: (inputId: string, action: 'submit' | 'message', selected?: CategorySummary, message?: string) => void;
   hasStarted: boolean;
   onStart: (msg: string) => void;
 }
@@ -23,9 +26,11 @@ export const ChatPanel: React.FC<ChatPanelProps> = ({
   isThinking,
   pendingInput,
   pendingFolderReview,
+  pendingScopeSelection,
   onSendMessage,
   onSubmitInput,
   onFolderReviewSubmit,
+  onScopeSelectionSubmit,
   hasStarted,
   onStart,
 }) => {
@@ -45,12 +50,13 @@ export const ChatPanel: React.FC<ChatPanelProps> = ({
     }
   }, [pendingInput, hasStarted]);
 
-  const inputDisabled = isThinking || (hasStarted && pendingInput === null && pendingFolderReview === null);
+  const inputDisabled = isThinking || (hasStarted && pendingInput === null && pendingFolderReview === null && pendingScopeSelection === null);
 
   const getPlaceholder = () => {
     if (!hasStarted) return 'Describe what you want to organize (optional)…';
     if (isThinking) return 'Agent is working…';
     if (pendingFolderReview) return 'Use the folder review panel above to respond…';
+    if (pendingScopeSelection) return 'Use the checklist above to respond…';
     if (pendingInput) return `${pendingInput.promptLabel} — type your response…`;
     return 'Waiting for agent…';
   };
@@ -189,6 +195,14 @@ export const ChatPanel: React.FC<ChatPanelProps> = ({
           <FolderReviewPanel
             request={pendingFolderReview}
             onSubmit={onFolderReviewSubmit}
+          />
+        )}
+
+        {/* Scope selection panel — rendered inline after messages */}
+        {pendingScopeSelection && !isThinking && (
+          <ScopeSelectionPanel
+            request={pendingScopeSelection}
+            onSubmit={onScopeSelectionSubmit}
           />
         )}
 

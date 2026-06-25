@@ -125,6 +125,14 @@ export const GetCategoriesoffilesofspecificextension = ({
                 }
             }
 
+            // Auto-compute the folder plan now — the LLM never needs to construct paths itself.
+            const extClean = params.extension.replace('.', '').toLowerCase();
+            const baseFolder = `${state.workspacePath}/${extClean}`;
+            state.proposedFolderPlan[params.extension] = Object.keys(categorized).map(category => ({
+                category,
+                folder: `${baseFolder}/${category}`
+            }));
+
             // Prepare a summarized payload for the master agent (max 3 files per category) to save tokens
             const categorizedSummary: Record<string, string[]> = {};
             for (const [folderName, fileNames] of Object.entries(categorized)) {
@@ -197,57 +205,35 @@ export const UpdateCategoryNameTool = ({
 });
 
 export const FinalizeThefolderforthefilesforEachExtensions = ({
-     description: "This tool will finalize the folder for the files types you have passed.",
+     description: "Finalizes the already-prepared folder plan for this document extension. The plan was already computed automatically — you do not need to build or pass it.",
     params: {
         type: "object",
         properties: {
-            json: {
-                type: "object",
-                description: "An object containing extensions, category, and folder structure.",
-                properties: {
-                    extensions: {
-                        type: "string",
-                        description: "Extension being finalized, eg .pdf, .docx, .txt"
-                    },
-                    folderStructure: {
-                        type: "array",
-                        items: {
-                            type: "object",
-                            properties: {
-                                category: {
-                                    type : "string",
-                                    description: "category name"
-                                },
-                                folder: {
-                                    type: "string",
-                                    description: "absolute path of the folder to be created for this category."
-                                }
-                            }
-                        }
-                    }
-                }
-            },
             ProcessId: {
                 type: "string",
                 description: "The unique process id for this session, provided by the user."
+            },
+            extension: {
+                type: "string",
+                description: "The file extension being finalized, eg .pdf, .docx, .txt"
             }
         },
-        required: ["json", "ProcessId"]
+        required: ["extension", "ProcessId"]
     },
-    async handler(params: {ProcessId: string, json: any}): Promise<string> {
+    async handler(params: {ProcessId: string, extension: string}): Promise<string> {
         console.log(`\x1b[95m[Worker Tool]\x1b[0m FinalizeThefolderforthefilesforEachExtensions → ${params.ProcessId}`);
         const state = fileAgentRecord[params.ProcessId];
         if (!state) return "Error: Invalid ProcessId.";
 
-        const exts = params.json.extensions;
-        const folderStructure = params.json.folderStructure;
-        
+        const exts = params.extension;
+        const folderStructure = state.proposedFolderPlan[params.extension] ?? [];
+
         if (!exts || exts.length === 0) {
-            return "Error: No extensions provided in the json object. Please report to the User.";
+            return "Error: No extension provided. Please report to the User.";
         }
 
         let updatedCount = 0;
-        
+
         if (!state.fileByExtension[exts])
                 return "The extension you have provided is not available in our memory. Please report to the User.";
 
@@ -584,6 +570,41 @@ export const PresentFolderPlanTool = ({
             return 'USER_APPROVED';
         }
         // Both 'message' and 'deny' return a free-text instruction for the agent to act on
+        return `USER_MESSAGE: ${response.message ?? 'User declined without a message. Ask what they would like to change.'}`;
+    }
+});
+
+/**
+ * PresentDocumentFolderPlanTool
+ *
+ * Document-specific sibling of PresentFolderPlanTool. The folder plan for a document
+ * extension is already computed automatically by GetCategoriesoffilesofspecificextension
+ * (and kept up to date by UpdateCategoryNameTool), so this tool never accepts an
+ * LLM-authored folderPlan param — it only reads state.proposedFolderPlan as ground truth.
+ */
+export const PresentDocumentFolderPlanTool = ({
+    description: "Present the already-prepared folder plan for this document extension to the user via a structured UI panel with Approve and Request Changes options. The plan was already computed automatically — you do not need to build or pass it. Returns 'USER_APPROVED' or 'USER_MESSAGE: <their request>'.",
+    params: {
+        type: "object",
+        properties: {
+            ProcessId: { type: "string", description: "The unique process id for this session." },
+            extension: { type: "string", description: "The file extension being organized, e.g. '.pdf'." }
+        },
+        required: ["ProcessId", "extension"]
+    },
+    async handler(params: { ProcessId: string; extension: string }): Promise<string> {
+        console.log(`\x1b[95m[Worker Tool]\x1b[0m PresentDocumentFolderPlanTool → ${params.ProcessId} / ${params.extension}`);
+        const state = fileAgentRecord[params.ProcessId];
+        if (!state) return "Error: Invalid ProcessId.";
+
+        const folderPlan = state.proposedFolderPlan[params.extension] ?? [];
+
+        // Ask the renderer to show the structured Approve/Message UI and wait for the user's response
+        const response = await requestFolderReview(params.extension, folderPlan);
+
+        if (response.action === 'approve') {
+            return 'USER_APPROVED';
+        }
         return `USER_MESSAGE: ${response.message ?? 'User declined without a message. Ask what they would like to change.'}`;
     }
 });
