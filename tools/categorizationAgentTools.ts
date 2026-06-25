@@ -15,7 +15,7 @@ import * as path from 'path';
 import { fileAgentRecord, fileAgentState, fileStatus } from '../src/state/fileAgentState.js';
 import { LLMService } from '../src/LLMService.js';
 import { documentWorkerAgentSystemPrompt, nonDocumentWorkerAgentSystemPrompt, imageWorkerAgentSystemPrompt } from '../src/prompt/fileAgent.js';
-import { GetCategoriesoffilesofspecificextension, GetCategoriesOfImages, UpdateCategoryNameTool, FinalizeThefolderforthefilesforEachExtensions, workerCompletionStatus, FinalizeThefolderforImages, FinalizeThefolderforNonDocuments, GetCategoriesForNonDocuments, UpdateCategoryNameForNonDocumentsTool } from './fileCategorizationTools.js';
+import { GetCategoriesoffilesofspecificextension, GetCategoriesOfImages, UpdateCategoryNameTool, FinalizeThefolderforthefilesforEachExtensions, workerCompletionStatus, FinalizeThefolderforImages, FinalizeThefolderforNonDocuments, GetCategoriesForNonDocuments, UpdateCategoryNameForNonDocumentsTool, PresentFolderPlanTool } from './fileCategorizationTools.js';
 import { ERROR_ENCOUNTERED, ErrorEncountered, HandOffToExecutionAgent } from '../tools/pipelineTools.js';
 import { ManageTodoListTool, MemoryScratchpadTool} from '../tools/planningAgentTools.js';
 import { emitLog, requestUserInput } from '../electron/ipcBridge.js';
@@ -64,10 +64,10 @@ async function CategorizedDocument(processId : string, extension : string, llmSe
             
             const runLoop = async () => {
                 const answer = await requestUserInput(`Docs Worker (${extension})`);
-                const trimmed = answer.trim().toLowerCase();
                 
+                let response = '';
                 try {
-                    const response = await session.prompt(answer, { functions: { GetCategoriesoffilesofspecificextension, UpdateCategoryNameTool, FinalizeThefolderforthefilesforEachExtensions, ErrorEncountered } });
+                    response = await session.prompt(answer, { functions: { GetCategoriesoffilesofspecificextension, PresentFolderPlanTool, UpdateCategoryNameTool, FinalizeThefolderforthefilesforEachExtensions, ErrorEncountered } });
                     emitLog(response, 'info', 'DocWorkerAgent');
                 } catch (e: any) {
                     emitLog(`Error: ${e.message}`, 'error', 'DocWorkerAgent');
@@ -77,7 +77,7 @@ async function CategorizedDocument(processId : string, extension : string, llmSe
                     resolve(`Successfully Organized.`);
                     return;
                 }
-                if(response.includes(ERROR_ENCOUNTERED)){
+                if (response.includes(ERROR_ENCOUNTERED)) {
                     resolve(ERROR_ENCOUNTERED);
                     return;
                 }
@@ -85,10 +85,10 @@ async function CategorizedDocument(processId : string, extension : string, llmSe
             };
 
             const response = await session.prompt(`Start organizing ${extension} files for ProcessId: ${processId} and path: ${state.workspacePath}`, 
-                { functions: { GetCategoriesoffilesofspecificextension, UpdateCategoryNameTool, FinalizeThefolderforthefilesforEachExtensions, ErrorEncountered } });
+                { functions: { GetCategoriesoffilesofspecificextension, PresentFolderPlanTool, UpdateCategoryNameTool, FinalizeThefolderforthefilesforEachExtensions, ErrorEncountered } });
             emitLog(response, 'info', 'DocWorkerAgent');
 
-            if (workerCompletionStatus[`${processId}_${extension.replaceAll(".","")} `]) {
+            if (workerCompletionStatus[`${processId}_${extension.replaceAll(".","")}`]) {
                 resolve(`Successfully Organized.`);
                 return;
             }
@@ -133,7 +133,7 @@ const NonDocumentCategorizationAgent = ({
                     return;
                 }
                 try {
-                    const response = await session.prompt(answer, { functions: {GetCategoriesForNonDocuments, FinalizeThefolderforNonDocuments, UpdateCategoryNameForNonDocumentsTool, ErrorEncountered } });
+                    const response = await session.prompt(answer, { functions: {GetCategoriesForNonDocuments, PresentFolderPlanTool, FinalizeThefolderforNonDocuments, UpdateCategoryNameForNonDocumentsTool, ErrorEncountered } });
                     emitLog(response, 'info', 'NonDocWorkerAgent');
                 } catch (e: any) {
                     emitLog(`Error: ${e.message}`, 'error', 'NonDocWorkerAgent');
@@ -151,7 +151,7 @@ const NonDocumentCategorizationAgent = ({
             };
 
             const response = await session.prompt(`Please start the process. ProcessId = ${params.ProcessId}, TaskId = ${params.TaskId}`, 
-            { functions: { GetCategoriesForNonDocuments, FinalizeThefolderforNonDocuments, UpdateCategoryNameForNonDocumentsTool, ErrorEncountered } });
+            { functions: { GetCategoriesForNonDocuments, PresentFolderPlanTool, FinalizeThefolderforNonDocuments, UpdateCategoryNameForNonDocumentsTool, ErrorEncountered } });
             emitLog(response, 'info', 'NonDocWorkerAgent');
 
             if (workerCompletionStatus[`${params.ProcessId}_TaskId${params.TaskId}`]) {
@@ -193,7 +193,7 @@ const ImageCategorizationAgent = ({
             const runLoop = async () => {
                 const answer = await requestUserInput('Image Worker');
                 try {
-                    const response = await session.prompt(answer, { functions: { GetCategoriesOfImages, UpdateCategoryNameTool, FinalizeThefolderforImages, ErrorEncountered  } });
+                    const response = await session.prompt(answer, { functions: { GetCategoriesOfImages, PresentFolderPlanTool, UpdateCategoryNameTool, FinalizeThefolderforImages, ErrorEncountered  } });
                     emitLog(response, 'info', 'ImageWorkerAgent');
                 } catch (e: any) {
                     emitLog(`Error: ${e.message}`, 'error', 'ImageWorkerAgent');
@@ -211,7 +211,7 @@ const ImageCategorizationAgent = ({
             };
 
             const response = await session.prompt(`Start organizing these image extensions: [${extensions.join(', ')}] for ProcessId: ${params.ProcessId} and path: ${state.workspacePath}`, 
-            { functions: { GetCategoriesOfImages, UpdateCategoryNameTool, FinalizeThefolderforImages, ErrorEncountered  } });
+            { functions: { GetCategoriesOfImages, PresentFolderPlanTool, UpdateCategoryNameTool, FinalizeThefolderforImages, ErrorEncountered  } });
 
             emitLog(response, 'info', 'ImageWorkerAgent');
             if(response.includes(ERROR_ENCOUNTERED)){

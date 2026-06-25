@@ -1,11 +1,12 @@
 import * as path from 'path';
 // import { defineChatSessionFunction } from 'node-llama-cpp';
 import { fileAgentRecord } from '../src/state/fileAgentState.js';
+import type { FolderPlanEntry } from '../src/state/fileAgentState.js';
 import { FileClassificationTool } from './fileClassificationTool.js';
 import { ImageClassificationTool } from './imageClassificationTool.js';
 import { stat } from 'fs';
 import { Items } from 'openai/resources/conversations.mjs';
-import { requestUserInput } from '../electron/ipcBridge.js';
+import { requestUserInput, requestFolderReview } from '../electron/ipcBridge.js';
 
 export const workerCompletionStatus: Record<string, boolean> = {};
 
@@ -162,14 +163,36 @@ export const UpdateCategoryNameTool = ({
         }
 
         let updatedCount = 0;
-        for (const file of state.fileByExtension[params.extension]) {
+        for (const file of state.fileByExtension[params.extension]!) {
+
             if (file.category === params.oldCategoryName) {
                 file.category = params.newCategoryName;
                 updatedCount++;
             }
         }
 
-        return `Successfully updated category name from '${params.oldCategoryName}' to '${params.newCategoryName}' for ${updatedCount} files.`;
+        // Update proposedFolderPlan: rename oldCategory → newCategory (merge if newCategory already exists)
+        if (state.proposedFolderPlan[params.extension]) {
+            const plan = state.proposedFolderPlan[params.extension]!;
+            const baseFolder = `${state.workspacePath}/${params.extension.replace('.', '')}`;
+
+            // Replace or remove the old entry
+            const filtered = plan.filter(e => e.category !== params.oldCategoryName);
+
+            // Ensure the new category entry exists
+            if (!filtered.find(e => e.category === params.newCategoryName)) {
+                filtered.push({ category: params.newCategoryName, folder: `${baseFolder}/${params.newCategoryName}` });
+            }
+
+            state.proposedFolderPlan[params.extension] = filtered;
+        }
+
+        // Return the updated folder plan as ground truth so the LLM doesn't reconstruct from memory
+        const updatedPlan = state.proposedFolderPlan[params.extension] ?? [];
+        return JSON.stringify({
+            message: `Successfully updated category name from '${params.oldCategoryName}' to '${params.newCategoryName}' for ${updatedCount} files.`,
+            updatedFolderPaths: updatedPlan
+        });
     }
 });
 
@@ -491,35 +514,76 @@ export const UpdateCategoryNameForNonDocumentsTool = ({
             }
         }
 
-        return `Successfully updated category name from '${params.oldCategoryName}' to '${params.newCategoryName}'`;
+        // Derive a stable plan key for non-documents (use TaskId as key prefix)
+        const planKey = `__task_${params.TaskId}`;
+        if (state.proposedFolderPlan[planKey]) {
+            const plan = state.proposedFolderPlan[planKey];
+            const baseFolder = state.workspacePath;
+
+            const filtered = plan.filter(e => e.category !== params.oldCategoryName);
+            if (!filtered.find(e => e.category === params.newCategoryName)) {
+                filtered.push({ category: params.newCategoryName, folder: `${baseFolder}/${params.newCategoryName}` });
+            }
+            state.proposedFolderPlan[planKey] = filtered;
+        }
+
+        const updatedPlan = state.proposedFolderPlan[`__task_${params.TaskId}`] ?? [];
+        return JSON.stringify({
+            message: `Successfully updated category name from '${params.oldCategoryName}' to '${params.newCategoryName}'`,
+            updatedFolderPaths: updatedPlan
+        });
     }
 });
 
-export const RequestFolderApproval = ({
-    description: "Call this tool when you have decided on a folder structure and need the user's explicit approval before finalizing them.",
+/**
+ * PresentFolderPlanTool
+ *
+ * The agent calls this tool instead of rendering the folder list as plain text.
+ * It saves the plan to state (ground truth), then emits a structured IPC event
+ * to the renderer which shows an Approve / Deny / Message UI panel.
+ * Blocks until the user responds, then returns a typed sentinel string.
+ *
+ * Return values:
+ *   "USER_APPROVED"              → agent should call FinalizeThe... immediately
+ *   "USER_MESSAGE: <text>"       → agent should interpret as rename/merge/freeform request
+ */
+export const PresentFolderPlanTool = ({
+    description: "Present the proposed folder plan to the user via a structured UI panel with Approve and Request Changes options. Call this whenever you want the user to review the current folder structure. It saves the plan to memory and blocks until the user responds. Returns 'USER_APPROVED' or 'USER_MESSAGE: <their request>'.",
     params: {
         type: "object",
         properties: {
-            ProcessId:{ type: "string"},
-            TaskId: { type: "number", description: "Task id of the task you are working on" },
-            ProposedFolders: { 
-                type: "array", 
+            ProcessId: { type: "string", description: "The unique process id for this session." },
+            extension: { type: "string", description: "The file extension being organized, e.g. '.pdf'." },
+            folderPlan: {
+                type: "array",
+                description: "The list of proposed folders. Each item has a category name and its full absolute path.",
                 items: {
-                    type: "string"
-                },
-                description: "The list of absolute or relative folder paths you propose to create." 
-            },
+                    type: "object",
+                    properties: {
+                        category: { type: "string", description: "Category name, e.g. 'invoices'" },
+                        folder: { type: "string", description: "Full absolute folder path, e.g. '/workspace/pdf/invoices'" }
+                    },
+                    required: ["category", "folder"]
+                }
+            }
         },
-        required: ["ProcessId", "TaskId", "proposed_folders"]
+        required: ["ProcessId", "extension", "folderPlan"]
     },
-    async handler(params : {ProcessId: string,TaskId: number,  ProposedFolders: string[]}): Promise<string> {
-        console.log(`\x1b[95m[Worker Tool]\x1b[0m RequestFolderApproval -> '${params.ProcessId}' to '${params.TaskId}'`);
+    async handler(params: { ProcessId: string; extension: string; folderPlan: FolderPlanEntry[] }): Promise<string> {
+        console.log(`\x1b[95m[Worker Tool]\x1b[0m PresentFolderPlanTool → ${params.ProcessId} / ${params.extension}`);
         const state = fileAgentRecord[params.ProcessId];
         if (!state) return "Error: Invalid ProcessId.";
-        
-        return new Promise(async (resolve) => {
-            var response = await requestUserInput("Request folder Approval");
-        }
 
+        // Persist the proposed plan to state — this becomes the ground truth
+        state.proposedFolderPlan[params.extension] = params.folderPlan;
+
+        // Ask the renderer to show the structured Approve/Message UI and wait for the user's response
+        const response = await requestFolderReview(params.extension, params.folderPlan);
+
+        if (response.action === 'approve') {
+            return 'USER_APPROVED';
+        }
+        // Both 'message' and 'deny' return a free-text instruction for the agent to act on
+        return `USER_MESSAGE: ${response.message ?? 'User declined without a message. Ask what they would like to change.'}`;
     }
 });

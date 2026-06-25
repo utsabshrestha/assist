@@ -10,10 +10,14 @@
 
 import { BrowserWindow, ipcMain } from 'electron';
 import { EventEmitter } from 'events';
+import type { FolderPlanEntry } from '../src/state/fileAgentState.js';
 
 export type MessageType = 'agent' | 'user' | 'system';
 export type LogType = 'tool_call' | 'tool_result' | 'pipeline' | 'error' | 'info';
 export type AgentStage = 'planning' | 'categorization' | 'execution' | 'done' | 'idle';
+
+// Re-export so consumers don't need a separate import
+export type { FolderPlanEntry };
 
 export interface AgentMessage {
   type: MessageType;
@@ -33,6 +37,20 @@ export interface AgentStageEvent {
   stage: AgentStage;
 }
 
+/** Sent from main → renderer to show the structured folder review panel. */
+export interface FolderReviewRequest {
+  inputId: string;
+  extension: string;
+  folders: FolderPlanEntry[];
+}
+
+/** Sent from renderer → main after the user clicks Approve or submits a change request. */
+export interface FolderReviewResponse {
+  inputId: string;
+  action: 'approve' | 'message';
+  message?: string; // populated when action === 'message'
+}
+
 // Internal event emitter to receive user input from the renderer
 const inputEmitter = new EventEmitter();
 let mainWindow: BrowserWindow | null = null;
@@ -45,9 +63,14 @@ let inputIdCounter = 0;
 export function setMainWindow(win: BrowserWindow): void {
   mainWindow = win;
 
-  // Listen for user input coming back from the renderer
+  // Listen for plain text user input
   ipcMain.on('agent:user_input', (_event, payload: { inputId: string; value: string }) => {
     inputEmitter.emit(`input:${payload.inputId}`, payload.value);
+  });
+
+  // Listen for structured folder review responses (Approve or Message)
+  ipcMain.on('agent:folder_review_response', (_event, payload: FolderReviewResponse) => {
+    inputEmitter.emit(`input:${payload.inputId}`, payload);
   });
 }
 
@@ -65,7 +88,7 @@ export function emitAgentMessage(content: string, type: MessageType = 'agent'): 
  * Emit a log entry (side panel).
  */
 export function emitLog(content: string, type: LogType = 'info', name?: string): void {
-  const log: AgentLog = { type, name, content, timestamp: Date.now() };
+  const log: AgentLog = { type, content, timestamp: Date.now(), ...(name !== undefined ? { name } : {}) };
   console.log(`[LOG:${type}]${name ? `[${name}]` : ''} ${content}`);
   mainWindow?.webContents.send('agent:log', log);
 }
@@ -96,5 +119,23 @@ export function requestUserInput(promptLabel: string): Promise<string> {
 
     // Ask the renderer to show the input box
     mainWindow?.webContents.send('agent:input_request', { promptLabel, inputId });
+  });
+}
+
+/**
+ * Show the structured folder review panel in the renderer.
+ * Blocks until the user clicks Approve or submits a change request.
+ */
+export function requestFolderReview(extension: string, folders: FolderPlanEntry[]): Promise<FolderReviewResponse> {
+  return new Promise((resolve) => {
+    const inputId = `folder_review_${++inputIdCounter}_${Date.now()}`;
+
+    // One-time listener — resolves with the typed response object
+    inputEmitter.once(`input:${inputId}`, (payload: FolderReviewResponse) => {
+      resolve(payload);
+    });
+
+    const request: FolderReviewRequest = { inputId, extension, folders };
+    mainWindow?.webContents.send('agent:folder_review_request', request);
   });
 }

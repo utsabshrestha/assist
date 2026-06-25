@@ -1,4 +1,9 @@
 export type TodoStatus = 'not-started' | 'in-progress' | 'completed' | 'blocked' | 'failed';
+
+export interface FolderPlanEntry {
+    category: string;
+    folder: string; // full absolute path
+}
 export type AgentPhase = 'planning' | 'categorization' | 'execution' | 'done';
 export interface TodoItem {
     id: number;
@@ -22,6 +27,11 @@ export class fileAgentState {
     public todoList: TodoItem[] = [];
     public globalNotes: string[] = [];
     public planConfirmedFiles : fileStatus[] = [];
+    /**
+     * Latest folder plan proposed by PresentFolderPlanTool, keyed by extension (e.g. ".pdf").
+     * This is the ground-truth the LLM reads back from tool responses — never from its own memory.
+     */
+    public proposedFolderPlan: Record<string, FolderPlanEntry[]> = {};
 
     public AddFile(file : fileStatus){
         if (this.fileByExtension[file.ext] == undefined){

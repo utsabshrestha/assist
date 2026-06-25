@@ -1,5 +1,5 @@
 import React, { useEffect, useState, useCallback, useRef } from 'react';
-import type { AgentMessage, AgentLog, AgentStage } from './types/electron.js';
+import type { AgentMessage, AgentLog, AgentStage, FolderReviewRequest } from './types/electron.js';
 import { ChatPanel } from './components/ChatPanel.js';
 import { LogPanel } from './components/LogPanel.js';
 import { StageBadge } from './components/StageBadge.js';
@@ -12,6 +12,7 @@ const App: React.FC = () => {
   const [hasStarted, setHasStarted] = useState(false);
   const [logPanelVisible, setLogPanelVisible] = useState(true);
   const [pendingInput, setPendingInput] = useState<{ promptLabel: string; inputId: string } | null>(null);
+  const [pendingFolderReview, setPendingFolderReview] = useState<FolderReviewRequest | null>(null);
 
   // Drag-to-resize state
   const [chatWidth, setChatWidth] = useState(60);
@@ -44,11 +45,17 @@ const App: React.FC = () => {
       setPendingInput(payload);
     });
 
+    const removeFolderReviewRequest = api.onFolderReviewRequest((payload) => {
+      setIsThinking(false);
+      setPendingFolderReview(payload);
+    });
+
     return () => {
       removeMessage();
       removeLog();
       removeStage();
       removeInputRequest();
+      removeFolderReviewRequest();
     };
   }, []);
 
@@ -77,6 +84,12 @@ const App: React.FC = () => {
     setPendingInput(null);
     setIsThinking(true);
     window.electronAPI?.sendInput(inputId, value);
+  }, []);
+
+  const handleFolderReviewSubmit = useCallback((inputId: string, action: 'approve' | 'message', message?: string) => {
+    setPendingFolderReview(null);
+    setIsThinking(true);
+    window.electronAPI?.sendFolderReview(inputId, action, message);
   }, []);
 
   // ==========================================
@@ -169,8 +182,10 @@ const App: React.FC = () => {
             stage={stage}
             isThinking={isThinking}
             pendingInput={pendingInput}
+            pendingFolderReview={pendingFolderReview}
             onSendMessage={handleSendMessage}
             onSubmitInput={handleSubmitInput}
+            onFolderReviewSubmit={handleFolderReviewSubmit}
             hasStarted={hasStarted}
             onStart={handleStart}
           />

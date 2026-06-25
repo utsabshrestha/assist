@@ -1,15 +1,18 @@
 import React, { useEffect, useRef, useState, useCallback } from 'react';
-import type { AgentMessage, AgentStage } from '../types/electron.js';
+import type { AgentMessage, AgentStage, FolderReviewRequest } from '../types/electron.js';
 import { MessageBubble, TypingIndicator } from './MessageBubble.js';
 import { StageProgressBar } from './StageProgressBar.js';
+import { FolderReviewPanel } from './FolderReviewPanel.js';
 
 interface ChatPanelProps {
   messages: AgentMessage[];
   stage: AgentStage;
   isThinking: boolean;
   pendingInput: { promptLabel: string; inputId: string } | null;
+  pendingFolderReview: FolderReviewRequest | null;
   onSendMessage: (text: string) => void;
   onSubmitInput: (inputId: string, value: string) => void;
+  onFolderReviewSubmit: (inputId: string, action: 'approve' | 'message', message?: string) => void;
   hasStarted: boolean;
   onStart: (msg: string) => void;
 }
@@ -19,8 +22,10 @@ export const ChatPanel: React.FC<ChatPanelProps> = ({
   stage,
   isThinking,
   pendingInput,
+  pendingFolderReview,
   onSendMessage,
   onSubmitInput,
+  onFolderReviewSubmit,
   hasStarted,
   onStart,
 }) => {
@@ -40,11 +45,12 @@ export const ChatPanel: React.FC<ChatPanelProps> = ({
     }
   }, [pendingInput, hasStarted]);
 
-  const inputDisabled = isThinking || (hasStarted && pendingInput === null);
+  const inputDisabled = isThinking || (hasStarted && pendingInput === null && pendingFolderReview === null);
 
   const getPlaceholder = () => {
     if (!hasStarted) return 'Describe what you want to organize (optional)…';
     if (isThinking) return 'Agent is working…';
+    if (pendingFolderReview) return 'Use the folder review panel above to respond…';
     if (pendingInput) return `${pendingInput.promptLabel} — type your response…`;
     return 'Waiting for agent…';
   };
@@ -177,6 +183,14 @@ export const ChatPanel: React.FC<ChatPanelProps> = ({
         {messages.map((msg, i) => (
           <MessageBubble key={`${msg.timestamp}-${i}`} message={msg} />
         ))}
+
+        {/* Folder review panel — rendered inline after messages */}
+        {pendingFolderReview && !isThinking && (
+          <FolderReviewPanel
+            request={pendingFolderReview}
+            onSubmit={onFolderReviewSubmit}
+          />
+        )}
 
         {isThinking && <TypingIndicator />}
 

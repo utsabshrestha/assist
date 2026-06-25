@@ -7,14 +7,15 @@
  */
 
 import { contextBridge, ipcRenderer } from 'electron';
-import type { AgentMessage, AgentLog, AgentStageEvent } from './ipcBridge.js';
+import type { AgentMessage, AgentLog, AgentStageEvent, FolderReviewRequest, FolderReviewResponse } from './ipcBridge.js';
 
 // Re-export types for renderer consumption
-export type { AgentMessage, AgentLog, AgentStageEvent };
+export type { AgentMessage, AgentLog, AgentStageEvent, FolderReviewRequest, FolderReviewResponse };
 
 export interface ElectronAPI {
   // Renderer → Main
   sendInput: (inputId: string, value: string) => void;
+  sendFolderReview: (inputId: string, action: 'approve' | 'message', message?: string) => void;
   startAgent: (userMessage: string) => void;
   selectFolder: () => Promise<string | null>;
 
@@ -23,12 +24,19 @@ export interface ElectronAPI {
   onLog: (callback: (log: AgentLog) => void) => () => void;
   onStage: (callback: (event: AgentStageEvent) => void) => () => void;
   onInputRequest: (callback: (payload: { promptLabel: string; inputId: string }) => void) => () => void;
+  onFolderReviewRequest: (callback: (payload: FolderReviewRequest) => void) => () => void;
 }
 
 contextBridge.exposeInMainWorld('electronAPI', {
   sendInput: (inputId: string, value: string) => {
     ipcRenderer.send('agent:user_input', { inputId, value });
   },
+
+  sendFolderReview: (inputId: string, action: 'approve' | 'message', message?: string) => {
+    const payload: FolderReviewResponse = { inputId, action, ...(message !== undefined ? { message } : {}) };
+    ipcRenderer.send('agent:folder_review_response', payload);
+  },
+
 
   startAgent: (userMessage: string) => {
     ipcRenderer.send('agent:start', { userMessage });
@@ -60,5 +68,11 @@ contextBridge.exposeInMainWorld('electronAPI', {
     const handler = (_: Electron.IpcRendererEvent, payload: { promptLabel: string; inputId: string }) => callback(payload);
     ipcRenderer.on('agent:input_request', handler);
     return () => ipcRenderer.removeListener('agent:input_request', handler);
+  },
+
+  onFolderReviewRequest: (callback: (payload: FolderReviewRequest) => void) => {
+    const handler = (_: Electron.IpcRendererEvent, payload: FolderReviewRequest) => callback(payload);
+    ipcRenderer.on('agent:folder_review_request', handler);
+    return () => ipcRenderer.removeListener('agent:folder_review_request', handler);
   },
 } satisfies ElectronAPI);
