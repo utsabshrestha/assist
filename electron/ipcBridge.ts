@@ -10,20 +10,26 @@
 
 import { BrowserWindow, ipcMain } from 'electron';
 import { EventEmitter } from 'events';
-import type { FolderPlanEntry, CategorySummary } from '../src/state/fileAgentState.js';
+import type { FolderPlanEntry, CategorySummary, TodoItem } from '../src/state/fileAgentState.js';
 
-export type MessageType = 'agent' | 'user' | 'system';
+export type MessageType = 'agent' | 'user' | 'system' | 'task_update';
 export type LogType = 'tool_call' | 'tool_result' | 'pipeline' | 'error' | 'info';
 export type AgentStage = 'planning' | 'categorization' | 'execution' | 'done' | 'idle';
 
 // Re-export so consumers don't need a separate import
-export type { FolderPlanEntry, CategorySummary };
+export type { FolderPlanEntry, CategorySummary, TodoItem };
 
 export interface AgentMessage {
   type: MessageType;
   stage: AgentStage;
   content: string;
   timestamp: number;
+  /**
+   * Stable identity for messages that represent the same ongoing unit of work
+   * (e.g. a task or extension's progress). When set, the renderer updates the
+   * existing bubble with this groupId in place instead of appending a new one.
+   */
+  groupId?: string;
 }
 
 export interface AgentLog {
@@ -35,6 +41,11 @@ export interface AgentLog {
 
 export interface AgentStageEvent {
   stage: AgentStage;
+}
+
+/** Sent from main → renderer whenever the todo list is created or a task/sub-task status changes. */
+export interface AgentTodoUpdateEvent {
+  todoList: TodoItem[];
 }
 
 /** Sent from main → renderer to show the structured folder review panel. */
@@ -99,8 +110,8 @@ export function setMainWindow(win: BrowserWindow): void {
 /**
  * Emit a chat message (main panel).
  */
-export function emitAgentMessage(content: string, type: MessageType = 'agent'): void {
-  const msg: AgentMessage = { type, stage: currentStage, content, timestamp: Date.now() };
+export function emitAgentMessage(content: string, type: MessageType = 'agent', groupId?: string): void {
+  const msg: AgentMessage = { type, stage: currentStage, content, timestamp: Date.now(), ...(groupId !== undefined ? { groupId } : {}) };
   // Always keep a console copy for debugging
   console.log(`[${type.toUpperCase()}][${currentStage}] ${content}`);
   mainWindow?.webContents.send('agent:message', msg);
@@ -122,6 +133,14 @@ export function emitStage(stage: AgentStage): void {
   currentStage = stage;
   console.log(`[STAGE] → ${stage}`);
   mainWindow?.webContents.send('agent:stage', { stage } as AgentStageEvent);
+}
+
+/**
+ * Broadcast the current todo list snapshot to the renderer.
+ * One-way, fire-and-forget — no response leg, since this is a passive status display.
+ */
+export function emitTodoUpdate(todoList: TodoItem[]): void {
+  mainWindow?.webContents.send('agent:todo_update', { todoList } as AgentTodoUpdateEvent);
 }
 
 /**

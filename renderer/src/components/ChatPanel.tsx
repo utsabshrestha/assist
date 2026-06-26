@@ -187,7 +187,7 @@ export const ChatPanel: React.FC<ChatPanelProps> = ({
 
         {/* Messages */}
         {messages.map((msg, i) => (
-          <MessageBubble key={`${msg.timestamp}-${i}`} message={msg} />
+          <MessageBubble key={msg.groupId ?? `${msg.timestamp}-${i}`} message={msg} />
         ))}
 
         {/* Folder review panel — rendered inline after messages */}

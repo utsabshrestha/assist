@@ -1,13 +1,16 @@
 import React, { useEffect, useRef, useState } from 'react';
-import type { AgentLog } from '../types/electron.js';
+import type { AgentLog, TodoItem } from '../types/electron.js';
 import { LogEntry } from './LogEntry.js';
+import { TodoListPanel } from './TodoListPanel.js';
 
 interface LogPanelProps {
   logs: AgentLog[];
+  todoList: TodoItem[];
   isVisible: boolean;
 }
 
 const FILTERS = [
+  { value: 'tasks',       label: 'Task List' },
   { value: 'all',         label: 'All'      },
   { value: 'tool_call',   label: 'Calls'    },
   { value: 'tool_result', label: 'Results'  },
@@ -15,13 +18,13 @@ const FILTERS = [
   { value: 'error',       label: 'Errors'   },
 ];
 
-export const LogPanel: React.FC<LogPanelProps> = ({ logs, isVisible }) => {
+export const LogPanel: React.FC<LogPanelProps> = ({ logs, todoList, isVisible }) => {
   const bottomRef = useRef<HTMLDivElement>(null);
-  const [filter, setFilter] = useState<string>('all');
+  const [filter, setFilter] = useState<string>('tasks');
 
   useEffect(() => {
-    bottomRef.current?.scrollIntoView({ behavior: 'smooth' });
-  }, [logs]);
+    if (filter !== 'tasks') bottomRef.current?.scrollIntoView({ behavior: 'smooth' });
+  }, [logs, filter]);
 
   const filteredLogs = filter === 'all' ? logs : logs.filter(l => l.type === filter);
   const errorCount = logs.filter(l => l.type === 'error').length;
@@ -32,14 +35,20 @@ export const LogPanel: React.FC<LogPanelProps> = ({ logs, isVisible }) => {
 
       {/* Header */}
       <div className="flex items-center justify-between px-4 py-2.5 border-b border-[#e7e5e4] bg-[#fafafa] flex-shrink-0">
-        <h2 className="text-xs font-semibold text-[#57534e] uppercase tracking-wider">Activity Log</h2>
-        <span className="text-[10px] text-[#a8a29e] font-mono">{logs.length}</span>
+        <h2 className="text-xs font-semibold text-[#57534e] uppercase tracking-wider">
+          {filter === 'tasks' ? 'Task List' : 'Activity Log'}
+        </h2>
+        <span className="text-[10px] text-[#a8a29e] font-mono">
+          {filter === 'tasks' ? todoList.length : logs.length}
+        </span>
       </div>
 
-      {/* Filter tabs */}
+      {/* Tabs */}
       <div className="flex gap-0 border-b border-[#e7e5e4] flex-shrink-0 overflow-x-auto">
         {FILTERS.map(opt => {
-          const count = opt.value === 'all' ? logs.length : logs.filter(l => l.type === opt.value).length;
+          const count = opt.value === 'tasks'
+            ? todoList.length
+            : opt.value === 'all' ? logs.length : logs.filter(l => l.type === opt.value).length;
           const isError = opt.value === 'error' && errorCount > 0;
           return (
             <button
@@ -68,9 +77,11 @@ export const LogPanel: React.FC<LogPanelProps> = ({ logs, isVisible }) => {
         })}
       </div>
 
-      {/* Log list */}
+      {/* Content */}
       <div className="flex-1 overflow-y-auto">
-        {filteredLogs.length === 0 ? (
+        {filter === 'tasks' ? (
+          <TodoListPanel todoList={todoList} />
+        ) : filteredLogs.length === 0 ? (
           <div className="flex flex-col items-center justify-center h-full gap-2 text-center py-8">
             <p className="text-sm text-[#a8a29e]">No activity yet</p>
             <p className="text-xs text-[#c4bfbb]">Tool calls and pipeline events will appear here</p>

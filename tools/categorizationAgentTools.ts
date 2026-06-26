@@ -13,12 +13,13 @@ import { OpenAISession } from "../src/workerAgent.js";
 import * as fs from 'fs/promises';
 import * as path from 'path';
 import { fileAgentRecord, fileAgentState, fileStatus } from '../src/state/fileAgentState.js';
+import type { TodoStatus } from '../src/state/fileAgentState.js';
 import { LLMService } from '../src/LLMService.js';
 import { documentWorkerAgentSystemPrompt, nonDocumentWorkerAgentSystemPrompt, imageWorkerAgentSystemPrompt } from '../src/prompt/fileAgent.js';
 import { GetCategoriesoffilesofspecificextension, GetCategoriesOfImages, UpdateCategoryNameTool, FinalizeThefolderforthefilesforEachExtensions, workerCompletionStatus, FinalizeThefolderforImages, FinalizeThefolderforNonDocuments, GetCategoriesForNonDocuments, UpdateCategoryNameForNonDocumentsTool, PresentFolderPlanTool, PresentDocumentFolderPlanTool } from './fileCategorizationTools.js';
 import { ERROR_ENCOUNTERED, ErrorEncountered, HandOffToExecutionAgent } from '../tools/pipelineTools.js';
 import { ManageTodoListTool, MemoryScratchpadTool} from '../tools/planningAgentTools.js';
-import { emitLog, requestUserInput } from '../electron/ipcBridge.js';
+import { emitLog, requestUserInput, emitTodoUpdate, emitAgentMessage } from '../electron/ipcBridge.js';
 
 const DocumentCategorizationAgent = ({
     description: "Spins up an Agent to virtually organize document file extension(s). It organized Documents extensions such as (.pdf, .docx, .doc, .txt, .xlsx, .xls, .csv, .ppt, .pptx, .json, .md).",
@@ -32,21 +33,43 @@ const DocumentCategorizationAgent = ({
     },
     async handler(params: {ProcessId: string, TaskId: number}): Promise<string> {
         emitLog(`DocumentCategorizationAgent for Task : ${params.TaskId}`, 'tool_call', 'DocumentCategorizationAgent');
-        
+
         const state = fileAgentRecord[params.ProcessId];
         if (!state) return "Error: Invalid ProcessId.";
-        
-        const extensions: string[] = state.todoList
-                        .filter(x => x.id === params.TaskId)
-                        .flatMap(todoItem => todoItem.extensionList);
+
+        const task = state.todoList.find(t => t.id === params.TaskId);
+        const extensions: string[] = task ? task.extensionList : [];
+
+        // Initialize per-extension sub-progress tracking for the UI — never authored by the LLM.
+        if (task) {
+            task.subTasks = extensions.map(ext => ({ extension: ext, status: 'not-started' as TodoStatus }));
+            emitTodoUpdate(state.todoList);
+        }
 
         const llmService = await LLMService.getInstance();
         const results : Record<string, string> = {};
         for(const extension of extensions){
-            
+            const groupId = `ext_${params.ProcessId}_${params.TaskId}_${extension}`;
+            const subTask = task?.subTasks?.find(s => s.extension === extension);
+            if (subTask) {
+                subTask.status = 'in-progress';
+                emitTodoUpdate(state.todoList);
+                emitAgentMessage(`${extension} → in-progress`, 'task_update', groupId);
+            }
+
             const result = await CategorizedDocument(params.ProcessId, extension, llmService);
             if(result.includes(ERROR_ENCOUNTERED)){
+                if (subTask) {
+                    subTask.status = 'failed';
+                    emitTodoUpdate(state.todoList);
+                    emitAgentMessage(`${extension} → failed`, 'task_update', groupId);
+                }
                 return `Error encountered during categorizing document of type ${extension}`;
+            }
+            if (subTask) {
+                subTask.status = 'completed';
+                emitTodoUpdate(state.todoList);
+                emitAgentMessage(`${extension} → completed`, 'task_update', groupId);
             }
             results[extension] = result;
         }

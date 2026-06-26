@@ -62,7 +62,7 @@ export class OpenAISession {
 
             this.messages.push(msg);
 
-            if (msg.content) {
+            if (msg.content && options.forceToolUse == false) {
                 // Route assistant messages to the main chat panel
                 emitAgentMessage(msg.content, 'agent');
             }

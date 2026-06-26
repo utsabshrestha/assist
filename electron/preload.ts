@@ -7,10 +7,10 @@
  */
 
 import { contextBridge, ipcRenderer } from 'electron';
-import type { AgentMessage, AgentLog, AgentStageEvent, FolderReviewRequest, FolderReviewResponse, ScopeSelectionRequest, ScopeSelectionResponse, CategorySummary } from './ipcBridge.js';
+import type { AgentMessage, AgentLog, AgentStageEvent, AgentTodoUpdateEvent, FolderReviewRequest, FolderReviewResponse, ScopeSelectionRequest, ScopeSelectionResponse, CategorySummary, TodoItem } from './ipcBridge.js';
 
 // Re-export types for renderer consumption
-export type { AgentMessage, AgentLog, AgentStageEvent, FolderReviewRequest, FolderReviewResponse, ScopeSelectionRequest, ScopeSelectionResponse, CategorySummary };
+export type { AgentMessage, AgentLog, AgentStageEvent, AgentTodoUpdateEvent, FolderReviewRequest, FolderReviewResponse, ScopeSelectionRequest, ScopeSelectionResponse, CategorySummary, TodoItem };
 
 export interface ElectronAPI {
   // Renderer → Main
@@ -24,6 +24,7 @@ export interface ElectronAPI {
   onMessage: (callback: (msg: AgentMessage) => void) => () => void;
   onLog: (callback: (log: AgentLog) => void) => () => void;
   onStage: (callback: (event: AgentStageEvent) => void) => () => void;
+  onTodoUpdate: (callback: (event: AgentTodoUpdateEvent) => void) => () => void;
   onInputRequest: (callback: (payload: { promptLabel: string; inputId: string }) => void) => () => void;
   onFolderReviewRequest: (callback: (payload: FolderReviewRequest) => void) => () => void;
   onScopeSelectionRequest: (callback: (payload: ScopeSelectionRequest) => void) => () => void;
@@ -92,5 +93,11 @@ contextBridge.exposeInMainWorld('electronAPI', {
     const handler = (_: Electron.IpcRendererEvent, payload: ScopeSelectionRequest) => callback(payload);
     ipcRenderer.on('agent:scope_selection_request', handler);
     return () => ipcRenderer.removeListener('agent:scope_selection_request', handler);
+  },
+
+  onTodoUpdate: (callback: (event: AgentTodoUpdateEvent) => void) => {
+    const handler = (_: Electron.IpcRendererEvent, event: AgentTodoUpdateEvent) => callback(event);
+    ipcRenderer.on('agent:todo_update', handler);
+    return () => ipcRenderer.removeListener('agent:todo_update', handler);
   },
 } satisfies ElectronAPI);

@@ -3,7 +3,7 @@ import { fileAgentRecord, fileStatus } from "../src/state/fileAgentState.js";
 import * as fs from 'fs/promises';
 import type { Dirent } from 'fs';
 import { ErrorEncountered, HandOffToCategorizationAgent } from '../tools/pipelineTools.js';
-import { emitLog, emitAgentMessage, requestScopeSelection } from '../electron/ipcBridge.js';
+import { emitLog, emitAgentMessage, requestScopeSelection, emitTodoUpdate } from '../electron/ipcBridge.js';
 
 /**
  * Planning Agent 1 — Planning Agent tool set.
@@ -273,12 +273,18 @@ const ManageTodoListTool = ({
         if (params.action === "create") {
             if (!params.todoList) return "Error: todoList is required for 'create' action.";
             state.todoList = params.todoList as any[];
+            emitAgentMessage(`Created ${state.todoList.length} task${state.todoList.length === 1 ? '' : 's'}: ${state.todoList.map(t => t.title).join(', ')}`, 'task_update');
         } else if (params.action === "update_task") {
             if (params.taskId === undefined || !params.status) return "Error: taskId and status are required for 'update_task' action.";
             const task = state.todoList.find(t => t.id === params.taskId);
             if (!task) return `Error: Task with id ${params.taskId} not found.`;
             task.status = params.status as any;
             if (params.notes) task.notes = params.notes;
+            emitAgentMessage(`${task.title} → ${params.status}`, 'task_update', `task_${params.ProcessId}_${params.taskId}`);
+        }
+
+        if (params.action === "create" || params.action === "update_task") {
+            emitTodoUpdate(state.todoList);
         }
 
         if ((!state.todoList || state.todoList.length === 0) && state.globalNotes.length === 0) return "Todo list and notes are empty.";

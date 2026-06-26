@@ -10,12 +10,21 @@ export interface CategorySummary {
     "non-documents": string[];
 }
 export type AgentPhase = 'planning' | 'categorization' | 'execution' | 'done';
+export interface TodoSubTask {
+    extension: string;
+    status: TodoStatus;
+}
 export interface TodoItem {
     id: number;
     title: string;
     status: TodoStatus;
     notes?: string;
     extensionList: string []
+    /**
+     * Per-extension sub-progress, populated only for the Documents task by
+     * categorization code — never authored by the LLM, never part of ManageTodoListTool's schema.
+     */
+    subTasks?: TodoSubTask[];
 }
 
 export class fileAgentState {

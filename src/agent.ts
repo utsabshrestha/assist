@@ -76,7 +76,8 @@ export class FileAgent {
 
         // Seed stage 2 to begin executing the todo list immediately
         let result2 = await session2.prompt('Begin categorization.', {
-            functions: CategorizationTools
+            functions: CategorizationTools,
+            forceToolUse: true
         });
 
         while (true) {
@@ -93,7 +94,8 @@ export class FileAgent {
             if (userInput.toLowerCase() === 'exit' || userInput.toLowerCase() === 'quit') return;
 
             result2 = await session2.prompt(userInput, {
-                functions: CategorizationTools
+                functions: CategorizationTools,
+                forceToolUse: true
             });
         }
         if (errorEncountered) return;

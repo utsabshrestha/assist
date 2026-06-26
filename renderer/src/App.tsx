@@ -1,5 +1,5 @@
 import React, { useEffect, useState, useCallback, useRef } from 'react';
-import type { AgentMessage, AgentLog, AgentStage, FolderReviewRequest, ScopeSelectionRequest, CategorySummary } from './types/electron.js';
+import type { AgentMessage, AgentLog, AgentStage, FolderReviewRequest, ScopeSelectionRequest, CategorySummary, TodoItem } from './types/electron.js';
 import { ChatPanel } from './components/ChatPanel.js';
 import { LogPanel } from './components/LogPanel.js';
 import { StageBadge } from './components/StageBadge.js';
@@ -14,6 +14,7 @@ const App: React.FC = () => {
   const [pendingInput, setPendingInput] = useState<{ promptLabel: string; inputId: string } | null>(null);
   const [pendingFolderReview, setPendingFolderReview] = useState<FolderReviewRequest | null>(null);
   const [pendingScopeSelection, setPendingScopeSelection] = useState<ScopeSelectionRequest | null>(null);
+  const [todoList, setTodoList] = useState<TodoItem[]>([]);
 
   // Drag-to-resize state
   const [chatWidth, setChatWidth] = useState(60);
@@ -29,7 +30,17 @@ const App: React.FC = () => {
 
     const removeMessage = api.onMessage((msg: AgentMessage) => {
       if (msg.type !== 'user') setIsThinking(false);
-      setMessages(prev => [...prev, msg]);
+      setMessages(prev => {
+        if (msg.groupId) {
+          const existingIndex = prev.findIndex(m => m.groupId === msg.groupId);
+          if (existingIndex !== -1) {
+            const next = [...prev];
+            next[existingIndex] = msg;
+            return next;
+          }
+        }
+        return [...prev, msg];
+      });
     });
 
     const removeLog = api.onLog((log: AgentLog) => {
@@ -56,6 +67,10 @@ const App: React.FC = () => {
       setPendingScopeSelection(payload);
     });
 
+    const removeTodoUpdate = api.onTodoUpdate(({ todoList }) => {
+      setTodoList(todoList);
+    });
+
     return () => {
       removeMessage();
       removeLog();
@@ -63,6 +78,7 @@ const App: React.FC = () => {
       removeInputRequest();
       removeFolderReviewRequest();
       removeScopeSelectionRequest();
+      removeTodoUpdate();
     };
   }, []);
 
@@ -211,10 +227,10 @@ const App: React.FC = () => {
           <div className="split-divider" onMouseDown={handleDividerMouseDown} />
         )}
 
-        {/* Log panel */}
+        {/* Log panel (includes Task List tab) */}
         {logPanelVisible && (
           <div className="flex-1 overflow-hidden min-w-0">
-            <LogPanel logs={logs} isVisible={logPanelVisible} />
+            <LogPanel logs={logs} todoList={todoList} isVisible={logPanelVisible} />
           </div>
         )}
       </div>
