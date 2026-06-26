@@ -10,14 +10,14 @@
 
 import { BrowserWindow, ipcMain } from 'electron';
 import { EventEmitter } from 'events';
-import type { FolderPlanEntry, CategorySummary, TodoItem } from '../src/state/fileAgentState.js';
+import type { FolderPlanEntry, CategorySummary, TodoItem, FolderPreviewEntry } from '../src/state/fileAgentState.js';
 
 export type MessageType = 'agent' | 'user' | 'system' | 'task_update';
 export type LogType = 'tool_call' | 'tool_result' | 'pipeline' | 'error' | 'info';
 export type AgentStage = 'planning' | 'categorization' | 'execution' | 'done' | 'idle';
 
 // Re-export so consumers don't need a separate import
-export type { FolderPlanEntry, CategorySummary, TodoItem };
+export type { FolderPlanEntry, CategorySummary, TodoItem, FolderPreviewEntry };
 
 export interface AgentMessage {
   type: MessageType;

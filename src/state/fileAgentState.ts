@@ -10,9 +10,20 @@ export interface CategorySummary {
     "non-documents": string[];
 }
 export type AgentPhase = 'planning' | 'categorization' | 'execution' | 'done';
+export interface FolderPreviewEntry {
+    category: string;
+    folder: string; // full absolute path, matches FolderPlanEntry.folder
+    files: string[]; // truncated file name list
+    totalFileCount: number; // untruncated count, for "+N more"
+}
 export interface TodoSubTask {
     extension: string;
     status: TodoStatus;
+    /**
+     * Finalized folder → file breakdown for this extension. Populated only after
+     * Finalize runs — never shown before approval, so there's no staleness concern.
+     */
+    folderPreview?: FolderPreviewEntry[];
 }
 export interface TodoItem {
     id: number;
@@ -25,6 +36,11 @@ export interface TodoItem {
      * categorization code — never authored by the LLM, never part of ManageTodoListTool's schema.
      */
     subTasks?: TodoSubTask[];
+    /**
+     * Finalized folder → file breakdown for this task. Populated only for Images/Non-Documents
+     * tasks (which have no subTasks layer), only after Finalize runs.
+     */
+    folderPreview?: FolderPreviewEntry[];
 }
 
 export class fileAgentState {

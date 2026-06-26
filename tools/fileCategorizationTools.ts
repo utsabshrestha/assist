@@ -1,13 +1,34 @@
 import * as path from 'path';
 // import { defineChatSessionFunction } from 'node-llama-cpp';
 import { fileAgentRecord } from '../src/state/fileAgentState.js';
+import type { FolderPlanEntry, FolderPreviewEntry, fileStatus } from '../src/state/fileAgentState.js';
 import { FileClassificationTool } from './fileClassificationTool.js';
 import { ImageClassificationTool } from './imageClassificationTool.js';
 import { stat } from 'fs';
 import { Items } from 'openai/resources/conversations.mjs';
-import { requestUserInput, requestFolderReview } from '../electron/ipcBridge.js';
+import { requestUserInput, requestFolderReview, emitTodoUpdate } from '../electron/ipcBridge.js';
 
 export const workerCompletionStatus: Record<string, boolean> = {};
+
+const FOLDER_PREVIEW_FILE_LIMIT = 5;
+
+/**
+ * Groups already-finalized files by their locked-in destination folder.
+ * Reads `fileNewDestination` (set by Finalize tools) rather than `category`,
+ * since this only runs post-approval — the mapping is final, no staleness risk.
+ */
+function buildFolderPreview(plan: FolderPlanEntry[], files: fileStatus[]): FolderPreviewEntry[] {
+    return plan.map(entry => {
+        const resolvedFolder = path.resolve(entry.folder);
+        const matched = files.filter(f => f.fileNewDestination === resolvedFolder).map(f => f.fileName);
+        return {
+            category: entry.category,
+            folder: entry.folder,
+            files: matched.slice(0, FOLDER_PREVIEW_FILE_LIMIT),
+            totalFileCount: matched.length
+        };
+    });
+}
 
 export const GetCategoriesOfImages = ({
     description: "Analyzes image files visually using the LLM vision capability. For each image, it generates a text description, embeds it, and clusters them to automatically produce descriptive category folder names. Returns a dictionary mapping the generated folder name to a brief list of the top 3 files in that category. Use this for image extensions like .jpg, .png, .jpeg, .webp, .gif.",
@@ -267,6 +288,15 @@ export const FinalizeThefolderforthefilesforEachExtensions = ({
 
         workerCompletionStatus[`${params.ProcessId}_${exts.replaceAll(".", "")}`] = true;
 
+        // Broadcast the finalized folder → file breakdown to the sidebar's per-extension sub-task.
+        const preview = buildFolderPreview(folderStructure, state.fileByExtension[exts]);
+        const task = state.todoList.find(t => t.extensionList.includes(exts));
+        const subTask = task?.subTasks?.find(s => s.extension === exts);
+        if (subTask) {
+            subTask.folderPreview = preview;
+            emitTodoUpdate(state.todoList);
+        }
+
         return `Successfully finalized destination folder for ${updatedCount} files across extensions: ${exts}.`;
     }
 });
@@ -323,6 +353,15 @@ export const FinalizeThefolderforImages = ({
             }
 
             workerCompletionStatus[`${params.ProcessId}_${ext.replaceAll(".", "")}`] = true;
+        }
+
+        // Broadcast the finalized folder → file breakdown to the sidebar, unioned across all extensions in this task.
+        const allFiles = exts.flatMap(ext => state.fileByExtension[ext] ?? []);
+        const preview = buildFolderPreview(folderStructure, allFiles);
+        const task = state.todoList.find(t => t.id === params.TaskId);
+        if (task) {
+            task.folderPreview = preview;
+            emitTodoUpdate(state.todoList);
         }
 
         return `Successfully finalized destination folder for ${updatedCount} files across extensions: ${exts.join(', ')}.`;
@@ -383,6 +422,16 @@ export const FinalizeThefolderforNonDocuments = ({
             workerCompletionStatus[`${params.ProcessId}_${ext.replaceAll(".", "")}`] = true;
         }
         workerCompletionStatus[`${params.ProcessId}_TaskId${params.TaskId}`] = true;
+
+        // Broadcast the finalized folder → file breakdown to the sidebar, unioned across all extensions in this task.
+        const allFiles = extensionsList.flatMap(ext => state.fileByExtension[ext] ?? []);
+        const preview = buildFolderPreview(folderStructure, allFiles);
+        const task = state.todoList.find(t => t.id === params.TaskId);
+        if (task) {
+            task.folderPreview = preview;
+            emitTodoUpdate(state.todoList);
+        }
+
         return `Successfully finalized destination folder.`;
     }
 });

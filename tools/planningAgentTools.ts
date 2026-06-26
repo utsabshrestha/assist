@@ -4,6 +4,7 @@ import * as fs from 'fs/promises';
 import type { Dirent } from 'fs';
 import { ErrorEncountered, HandOffToCategorizationAgent } from '../tools/pipelineTools.js';
 import { emitLog, emitAgentMessage, requestScopeSelection, emitTodoUpdate } from '../electron/ipcBridge.js';
+import type { CategorySummary } from "../src/state/fileAgentState.js";
 
 /**
  * Planning Agent 1 — Planning Agent tool set.
@@ -11,6 +12,14 @@ import { emitLog, emitAgentMessage, requestScopeSelection, emitTodoUpdate } from
  * Responsibilities: understand the workspace, discuss scope with user,
  * build the todo list, record constraints, then hand off to Categorization Agent.
  */
+
+/** Renders the scanned category/extension/count breakdown as plain text for the LLM to read. */
+function formatCategoryBreakdown(categories: CategorySummary, countByExt: Record<string, number>): string {
+    return (['documents', 'images', 'non-documents'] as const)
+        .filter(cat => categories[cat].length > 0)
+        .map(cat => `${cat}: ${categories[cat].map(ext => `${ext}(${countByExt[ext] ?? 0})`).join(', ')}`)
+        .join('\n');
+}
 
 
 const GetFolderSummaryTool = ({
@@ -126,7 +135,8 @@ const GetFolderSummaryTool = ({
             state.totalFileSizeLabel = `${(totalFileSize / 1024).toFixed(2)} MB`;
 
             const categoryCount = Object.values(categories).filter(list => list.length > 0).length;
-            return `Folder scanned: ${files.length} files found across ${categoryCount} categories. Call PresentScopeSelectionTool now to let the user choose what to organize.`;
+            const breakdown = formatCategoryBreakdown(categories, fileCountByExt);
+            return `Folder scanned: ${files.length} files found across ${categoryCount} categories.\n${breakdown}\nCall PresentScopeSelectionTool now to let the user choose what to organize.`;
         } catch (e: any) {
             return `We have encountered Error reading folder: ${e.message}, please report to the user immediately.`;
         }
@@ -160,7 +170,8 @@ const PresentScopeSelectionTool = ({
         );
 
         if (response.action === 'message') {
-            return `USER_MESSAGE: ${response.message ?? 'User declined without a message. Ask what they would like to change.'}`;
+            const breakdown = formatCategoryBreakdown(state.categorySummary, state.fileCountByExtension);
+            return `USER_MESSAGE: ${response.message ?? 'User declined without a message. Ask what they would like to change.'}\n\nHere is what was found in the folder (category: extension(count)):\n${breakdown}`;
         }
 
         const selected = response.selected ?? { documents: [], images: [], "non-documents": [] };

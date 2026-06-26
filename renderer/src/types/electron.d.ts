@@ -30,10 +30,19 @@ export interface AgentStageEvent {
 
 export type TodoStatus = 'not-started' | 'in-progress' | 'completed' | 'blocked' | 'failed';
 
+/** Finalized folder → file breakdown, shown only after approval (never during pending review). */
+export interface FolderPreviewEntry {
+  category: string;
+  folder: string;
+  files: string[];
+  totalFileCount: number;
+}
+
 /** Per-extension sub-progress, populated only for the Documents task. */
 export interface TodoSubTask {
   extension: string;
   status: TodoStatus;
+  folderPreview?: FolderPreviewEntry[];
 }
 
 export interface TodoItem {
@@ -43,6 +52,7 @@ export interface TodoItem {
   notes?: string;
   extensionList: string[];
   subTasks?: TodoSubTask[];
+  folderPreview?: FolderPreviewEntry[];
 }
 
 /** Payload sent from main → renderer whenever the todo list is created or a task/sub-task status changes. */

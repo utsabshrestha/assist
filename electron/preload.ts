@@ -7,10 +7,10 @@
  */
 
 import { contextBridge, ipcRenderer } from 'electron';
-import type { AgentMessage, AgentLog, AgentStageEvent, AgentTodoUpdateEvent, FolderReviewRequest, FolderReviewResponse, ScopeSelectionRequest, ScopeSelectionResponse, CategorySummary, TodoItem } from './ipcBridge.js';
+import type { AgentMessage, AgentLog, AgentStageEvent, AgentTodoUpdateEvent, FolderReviewRequest, FolderReviewResponse, ScopeSelectionRequest, ScopeSelectionResponse, CategorySummary, TodoItem, FolderPreviewEntry } from './ipcBridge.js';
 
 // Re-export types for renderer consumption
-export type { AgentMessage, AgentLog, AgentStageEvent, AgentTodoUpdateEvent, FolderReviewRequest, FolderReviewResponse, ScopeSelectionRequest, ScopeSelectionResponse, CategorySummary, TodoItem };
+export type { AgentMessage, AgentLog, AgentStageEvent, AgentTodoUpdateEvent, FolderReviewRequest, FolderReviewResponse, ScopeSelectionRequest, ScopeSelectionResponse, CategorySummary, TodoItem, FolderPreviewEntry };
 
 export interface ElectronAPI {
   // Renderer → Main
