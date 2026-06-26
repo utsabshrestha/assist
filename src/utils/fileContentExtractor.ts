@@ -18,9 +18,11 @@ export class FileContentExtractor {
     }
 
     /**
-     * Extracts a snippet of text from the given file, capped at around 1000 chars.
+     * Extracts a snippet of text from the given file, capped at around 600 chars.
+     * Filename and content are returned separately so callers can choose whether
+     * to embed/display them together or independently.
      */
-    public static async extractContent(filePath: string): Promise<string> {
+    public static async extractContent(filePath: string): Promise<{ baseName: string; snippet: string }> {
         const ext = path.extname(filePath).toLowerCase();
         const baseName = path.basename(filePath);
         let content = '';
@@ -61,6 +63,9 @@ export class FileContentExtractor {
                     if (json.length > 0) {
                         content += `Headers/Row1: ${JSON.stringify(json[0])}\n`;
                     }
+                    if (json.length > 1) {
+                        content += `SampleRows: ${JSON.stringify(json.slice(1, 6))}\n`;
+                    }
                 }
             } else if (ext === '.pptx' || ext === '.ppt') {
                 const officeParserM = await import('officeparser');
@@ -89,21 +94,53 @@ export class FileContentExtractor {
                     }
                 }
             } else if (ext === '.html' || ext === '.htm' || ext === '.xml') {
+                // HTML/XML is markup-heavy, so a larger window is needed to reach real content
+                // past head/meta/script/style boilerplate that gets stripped anyway.
                 const fd = await fs.open(filePath, 'r');
                 try {
-                    const buffer = Buffer.alloc(2048);
-                    const { bytesRead } = await fd.read(buffer, 0, 2048, 0);
-                    const rawText = buffer.toString('utf-8', 0, bytesRead);
+                    const buffer = Buffer.alloc(16384);
+                    const { bytesRead } = await fd.read(buffer, 0, 16384, 0);
+                    let rawText = buffer.toString('utf-8', 0, bytesRead);
+                    const bodyMatch = rawText.match(/<body[^>]*>/i);
+                    if (bodyMatch && bodyMatch.index !== undefined) {
+                        rawText = rawText.slice(bodyMatch.index);
+                    }
+                    rawText = rawText
+                        .replace(/<script[\s\S]*?<\/script>/gi, ' ')
+                        .replace(/<style[\s\S]*?<\/style>/gi, ' ');
                     content = rawText.replace(/<[^>]*>/g, ' ');
                 } finally {
                     await fd.close();
                 }
-            } else if (ext === '.txt' || ext === '.md' || ext === '.json') {
-                // Read only the first 2048 bytes to save memory (preventing huge memory spikes on large logs/json)
+            } else if (ext === '.json') {
+                // Try a full structural parse so the snippet carries real key/value text
+                // instead of a raw-byte prefix truncated mid-token.
+                const stats = await fs.stat(filePath);
+                if (stats.size <= 256 * 1024) {
+                    const raw = await fs.readFile(filePath, 'utf-8');
+                    try {
+                        const parsed = JSON.parse(raw);
+                        content = FileContentExtractor.extractTextFromParsedObject(parsed);
+                    } catch {
+                        content = raw.slice(0, 4096);
+                    }
+                } else {
+                    const fd = await fs.open(filePath, 'r');
+                    try {
+                        const buffer = Buffer.alloc(4096);
+                        const { bytesRead } = await fd.read(buffer, 0, 4096, 0);
+                        content = buffer.toString('utf-8', 0, bytesRead);
+                    } finally {
+                        await fd.close();
+                    }
+                }
+            } else if (ext === '.txt' || ext === '.md') {
+                // Read a larger window to save memory while still reaching past any
+                // leading frontmatter/TOC before the 600-char truncation below.
                 const fd = await fs.open(filePath, 'r');
                 try {
-                    const buffer = Buffer.alloc(2048);
-                    const { bytesRead } = await fd.read(buffer, 0, 2048, 0);
+                    const buffer = Buffer.alloc(8192);
+                    const { bytesRead } = await fd.read(buffer, 0, 8192, 0);
                     content = buffer.toString('utf-8', 0, bytesRead);
                 } finally {
                     await fd.close();
@@ -125,7 +162,7 @@ export class FileContentExtractor {
             content = content.substring(0, 600) + '...';
         }
 
-        return `Title: ${baseName}\n\nSnippet: ${content}`;
+        return { baseName, snippet: content };
     }
 }
 

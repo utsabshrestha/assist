@@ -5,35 +5,48 @@ import { FileContentExtractor } from "../src/utils/fileContentExtractor.js";
 import * as path from 'path';
 import { OpenAISession, workerAgent } from "../src/workerAgent.js";
 import { LlamaJsonSchemaGrammar } from "node-llama-cpp";
-import { dedupCategoryPrompt, fileCategorizationPrompt, nonDocumentCategorizationPrompt } from "../src/prompt/fileAgent.js";
+import { fileCategorizationPrompt, nonDocumentCategorizationPrompt } from "../src/prompt/fileAgent.js";
+import { lookupExtensionCategory } from "../src/utils/extensionCategoryMap.js";
+import { emitLog, emitAgentMessage } from "../electron/ipcBridge.js";
+
+export interface ClusteringProgressContext {
+    processId: string;
+    groupId: string;
+    label: string;
+}
 
 export class FileClassificationTool {
-    
+
     /**
      * Given a list of unclassified files, categorizes them using content and provides folder suggestions.
      */
-    public static async clusterAndNameFiles(filePaths: string[]): Promise<Record<string, string[]>> {
+    public static async clusterAndNameFiles(filePaths: string[], progress: ClusteringProgressContext): Promise<Record<string, string[]>> {
         if (filePaths.length === 0) {
             return {};
         }
 
         const llmService = await LLMService.getInstance();
         const embeddingService = await EmbeddingService.getInstance();
-        console.log(`Generating embeddings for ${filePaths.length} files...`);
-        
+        emitAgentMessage(`Analyzing ${filePaths.length} files...`, 'task_update', progress.groupId);
+        emitLog(`Extracting content & embedding ${filePaths.length} files for ${progress.label}`, 'pipeline', 'Clustering');
+
         try {
             // 1. Extract content and Generate Embeddings
             const embeddings: number[][] = [];
             const contents: string[] = [];
-            for (const filePath of filePaths) {
-                const content = await FileContentExtractor.extractContent(filePath);
-                contents.push(content);
-                const embedding = await embeddingService.generateEmbedding(content, "search_document: ");
+            for (const [i, filePath] of filePaths.entries()) {
+                const { baseName, snippet } = await FileContentExtractor.extractContent(filePath);
+                // Filename is kept separately for the naming prompt, but excluded from the
+                // embedding input so arbitrary/repeated filename tokens don't skew clustering.
+                contents.push(`Title: ${baseName}\n\nSnippet: ${snippet}`);
+                const embeddingInput = snippet.trim().length > 0 ? snippet : baseName;
+                const embedding = await embeddingService.generateEmbedding(embeddingInput, "search_document: ");
                 embeddings.push(embedding);
+                emitLog(`Embedded ${i + 1}/${filePaths.length}: ${baseName}`, 'tool_result', 'Clustering');
             }
-            
+
             // 2. Cluster the files using Python bridge
-            console.log("Clustering embeddings using Python bridge...");
+            emitLog('Clustering embeddings...', 'pipeline', 'Clustering');
             const clusterResult = await ClassificationUtility.clusterEmbeddings(embeddings);
             const labels = clusterResult.labels;
             const representatives = clusterResult.representatives;
@@ -50,8 +63,10 @@ export class FileClassificationTool {
             
             // 3. Generate Folder Names using LLM for each valid cluster
             const result: Record<string, string[]> = {};
-            console.log("Generating folder names from clusters...");
-            
+            const clusterCount = Object.keys(clusters).length;
+            emitAgentMessage(`Naming ${clusterCount} group(s) for ${progress.label}...`, 'task_update', progress.groupId);
+            emitLog(`Generating folder names for ${clusterCount} cluster(s)`, 'pipeline', 'Clustering');
+
             const sysprompt = fileCategorizationPrompt;
             
             
@@ -73,9 +88,6 @@ export class FileClassificationTool {
                             ${contentToLLM}
 
                             Folder name:`;
-
-                    console.log(sysprompt);
-                    console.log(prompt);
 
                     const response = await llmService.openai.chat.completions.create({
                         model: llmService.modelName,
@@ -114,71 +126,47 @@ export class FileClassificationTool {
                         folderName = rawOutput.replace(/<think>[\s\S]*?<\/think>/g, '').trim() || folderName;
                     }
                     
-                    console.log(`\x1b[36m[LLM Naming]\x1b[0m Cluster ${label} files (${fileNames.length}) -> LLM returned: "${folderName}"`);
-                    
                     // Cleanup LLM output to grab just the first line/clean name
                     let cleanFolderName = folderName.trim().replace(/^["']|["']$/g, '').replace(/[/\\?%*:|"<>]/g, '-').split('\n')[0].trim();
-                    
+
                     if (!cleanFolderName || cleanFolderName.length === 0 || cleanFolderName.toLowerCase() === "undefined") {
                         cleanFolderName = `Category_${label}`;
                     }
 
+                    emitLog(`Cluster ${label} (${fileNames.length} files) → "${cleanFolderName}"`, 'tool_result', 'Clustering');
+
                     result[cleanFolderName] = (result[cleanFolderName] || []).concat(fileNames);
-                    
+
                 }
             }
             // 3.5 Deduplicate similar folder names
             const folderNames = Object.keys(result);
             if (folderNames.length > 1) {
-                console.log("Checking for similar category names to deduplicate...");
-                
+                emitLog('Checking for similar category names to deduplicate...', 'pipeline', 'Clustering');
 
-                const dedupePrompt = dedupCategoryPrompt;
+                const merges = await ClassificationUtility.deduplicateCategories(folderNames, llmService);
 
-                const userDedupPrompt = 
-                `Review and deduplicate this folder list. Output only the JSON merges object.
-
-                Folders:
-                ${JSON.stringify(folderNames, null, 2)}
-
-                JSON:`;
-
-
-                try {
-                    const response = await llmService.openai.chat.completions.create({
-                        model: llmService.modelName,
-                        messages: [
-                            { role: "system", content: dedupePrompt },
-                            { role: "user", content: userDedupPrompt }
-                        ],
-                    });
-
-                    const dedupeResult = response.choices[0]?.message?.content || "";
-
-                    let merges = parseDedupeOutput(dedupeResult).merges;
-
-                    if (merges && merges.length > 0) {
-                        console.log(`\x1b[92m[Worker]\x1b[0m Found ${merges.length} similar categories to merge.`);
-                        for (const merge of merges) {
-                            if (result[merge.source] && result[merge.target] && merge.source !== merge.target) {
-                                result[merge.target] = result[merge.target].concat(result[merge.source]);
-                                delete result[merge.source];
-                            } else if (result[merge.source] && !result[merge.target]) {
-                                // Rename case where target doesn't exist
-                                result[merge.target] = result[merge.source];
-                                delete result[merge.source];
-                            }
+                if (merges.length > 0) {
+                    emitLog(`Merged ${merges.length} similar categories`, 'tool_result', 'Clustering');
+                    for (const merge of merges) {
+                        if (result[merge.source] && result[merge.target] && merge.source !== merge.target) {
+                            result[merge.target] = result[merge.target].concat(result[merge.source]);
+                            delete result[merge.source];
+                        } else if (result[merge.source] && !result[merge.target]) {
+                            // Rename case where target doesn't exist
+                            result[merge.target] = result[merge.source];
+                            delete result[merge.source];
                         }
                     }
-                } catch (e) {
-                    console.error("Error during category de-duplication:", e);
                 }
             }
 
+            emitAgentMessage(`${progress.label}: organized into ${Object.keys(result).length} categories`, 'task_update', progress.groupId);
             return result;
 
-        } catch (err) {
+        } catch (err: any) {
             console.error("Error during file classification:", err);
+            emitLog(`Error during classification: ${err?.message ?? err}`, 'error', 'Clustering');
             throw err;
         } finally {
             // 4. Dispose embedding model to free memory
@@ -189,14 +177,32 @@ export class FileClassificationTool {
     }
 
     public static async GetNonDocumentExtensionCategorized(extensions: string[]): Promise<Record<string, string[]>> {
+        const output: Record<string, string[]> = {};
+        const unmatched: string[] = [];
+
+        // Deterministic lookup first — extension→category for common cases is unambiguous
+        // and doesn't need a model call.
+        for (const ext of extensions) {
+            const category = lookupExtensionCategory(ext);
+            if (category) {
+                (output[category] ||= []).push(ext);
+            } else {
+                unmatched.push(ext);
+            }
+        }
+
+        if (unmatched.length === 0) {
+            return output;
+        }
+
         const llmService = await LLMService.getInstance();
-        
+
         const response = await llmService.openai.chat.completions.create({
             model: llmService.modelName,
             messages: [
-                { 
-                    role: "system", 
-                    content: nonDocumentCategorizationPrompt(extensions) + "\n\nRespond ONLY with a valid JSON matching the requested schema." 
+                {
+                    role: "system",
+                    content: nonDocumentCategorizationPrompt(unmatched) + "\n\nRespond ONLY with a valid JSON matching the requested schema."
                 },
                 {
                     role: "user",
@@ -218,7 +224,7 @@ export class FileClassificationTool {
                                     type: "object",
                                     properties: {
                                         category: { type: "string", description: "Category name." },
-                                        extensions: { 
+                                        extensions: {
                                             type: "array",
                                             items: {
                                                 type: "string",
@@ -239,7 +245,6 @@ export class FileClassificationTool {
             }
         });
 
-        const output: Record<string, string[]> = {};
         let rawOutput = response.choices[0]?.message?.content || "";
 
         // Strip any <think> tags if a reasoning model (like deepseek-reasoner) was used
@@ -247,12 +252,12 @@ export class FileClassificationTool {
 
         try {
             const parsed = JSON.parse(rawOutput);
-            
+
             // Map the schema array into the desired Record<string, string[]> format
             if (parsed && Array.isArray(parsed.categories)) {
                 for (const item of parsed.categories) {
                     if (item.category && Array.isArray(item.extensions)) {
-                        output[item.category] = item.extensions;
+                        output[item.category] = (output[item.category] || []).concat(item.extensions);
                     }
                 }
             }
@@ -264,22 +269,3 @@ export class FileClassificationTool {
         return output;
     }
 }
-function parseDedupeOutput(raw: string): { merges: {source: string, target: string}[] } {
-  // Extract first JSON object found, even if model adds trailing text
-  const match = raw.match(/\{[\s\S]*\}/);
-  if (!match) return { merges: [] };
-  
-  try {
-    const parsed = JSON.parse(match[0]);
-    // Validate shape
-    if (!Array.isArray(parsed.merges)) return { merges: [] };
-    return {
-      merges: parsed.merges.filter(
-        (m: any) => typeof m.source === 'string' && typeof m.target === 'string'
-      )
-    };
-  } catch {
-    return { merges: [] };
-  }
-}
-

@@ -2,8 +2,10 @@ import { LLMService } from "../src/LLMService.js";
 import { EmbeddingService } from "../src/EmbeddingService.js";
 import { ClassificationUtility } from "../src/utils/classificationUtility.js";
 import { getLowResBase64Image } from "../src/utils/imageUtility.js";
-import { fileCategorizationPrompt, dedupCategoryPrompt, imageDescriptionPrompt } from "../src/prompt/fileAgent.js";
+import { fileCategorizationPrompt, imageDescriptionPrompt } from "../src/prompt/fileAgent.js";
 import * as path from 'path';
+import { emitLog, emitAgentMessage } from "../electron/ipcBridge.js";
+import type { ClusteringProgressContext } from "./fileClassificationTool.js";
 
 export class ImageClassificationTool {
 
@@ -12,7 +14,7 @@ export class ImageClassificationTool {
      * embeds the descriptions, clusters them, and assigns category names.
      * Returns a map of category name → list of filenames.
      */
-    public static async clusterAndNameImages(filePaths: string[]): Promise<Record<string, string[]>> {
+    public static async clusterAndNameImages(filePaths: string[], progress: ClusteringProgressContext): Promise<Record<string, string[]>> {
         if (filePaths.length === 0) {
             return {};
         }
@@ -22,11 +24,11 @@ export class ImageClassificationTool {
 
         try {
             // ── Step 1: Describe each image via LLM vision (sequential to avoid RAM overload) ──
-            console.log(`\x1b[36m[Vision]\x1b[0m Describing ${filePaths.length} images sequentially...`);
+            emitAgentMessage(`Describing ${filePaths.length} images...`, 'task_update', progress.groupId);
+            emitLog(`Describing ${filePaths.length} images sequentially`, 'pipeline', 'Clustering');
             const descriptions: string[] = [];
 
-            for (let i = 0; i < filePaths.length; i++) {
-                const filePath = filePaths[i];
+            for (const [i, filePath] of filePaths.entries()) {
                 const fileName = path.basename(filePath);
 
                 try {
@@ -85,16 +87,17 @@ export class ImageClassificationTool {
                     }
 
                     descriptions.push(description);
-                    console.log(`\x1b[36m[Vision]\x1b[0m Described image ${i + 1}/${filePaths.length}: ${fileName} → "${description.substring(0, 80)}..."`);
+                    emitLog(`Described ${i + 1}/${filePaths.length}: ${fileName} → "${description.substring(0, 80)}..."`, 'tool_result', 'Clustering');
                 } catch (err: any) {
                     console.error(`\x1b[91m[Vision Error]\x1b[0m Failed to describe ${fileName}: ${err.message}`);
+                    emitLog(`Failed to describe ${fileName}: ${err.message}`, 'error', 'Clustering');
                     // Use filename as fallback description so embedding still works
                     descriptions.push(fileName);
                 }
             }
 
             // ── Step 2: Embed all descriptions ──
-            console.log(`\x1b[36m[Embedding]\x1b[0m Generating embeddings for ${descriptions.length} image descriptions...`);
+            emitLog(`Generating embeddings for ${descriptions.length} image descriptions`, 'pipeline', 'Clustering');
             const embeddings: number[][] = [];
 
             for (const description of descriptions) {
@@ -103,7 +106,7 @@ export class ImageClassificationTool {
             }
 
             // ── Step 3: Cluster using Python HDBSCAN bridge ──
-            console.log("\x1b[36m[Clustering]\x1b[0m Clustering image description embeddings...");
+            emitLog('Clustering image description embeddings...', 'pipeline', 'Clustering');
             const clusterResult = await ClassificationUtility.clusterEmbeddings(embeddings);
             const labels = clusterResult.labels;
             const representatives = clusterResult.representatives;
@@ -120,7 +123,9 @@ export class ImageClassificationTool {
 
             // ── Step 4: Name each cluster via LLM ──
             const result: Record<string, string[]> = {};
-            console.log("\x1b[36m[Naming]\x1b[0m Generating category names from image clusters...");
+            const clusterCount = Object.keys(clusters).length;
+            emitAgentMessage(`Naming ${clusterCount} group(s) for ${progress.label}...`, 'task_update', progress.groupId);
+            emitLog(`Generating category names for ${clusterCount} image cluster(s)`, 'pipeline', 'Clustering');
 
             const sysprompt = fileCategorizationPrompt;
 
@@ -176,14 +181,14 @@ export class ImageClassificationTool {
                         folderName = rawOutput.replace(/<think>[\s\S]*?<\/think>/g, '').trim() || folderName;
                     }
 
-                    console.log(`\x1b[36m[LLM Naming]\x1b[0m Image cluster ${label} (${fileNames.length} files) → "${folderName}"`);
-
                     // Clean the name
                     let cleanFolderName = folderName.trim().replace(/^["']|["']$/g, '').replace(/[/\\?%*:|"<>]/g, '-').split('\n')[0].trim();
 
                     if (!cleanFolderName || cleanFolderName.length === 0 || cleanFolderName.toLowerCase() === "undefined") {
                         cleanFolderName = `Image_Category_${label}`;
                     }
+
+                    emitLog(`Image cluster ${label} (${fileNames.length} files) → "${cleanFolderName}"`, 'tool_result', 'Clustering');
 
                     result[cleanFolderName] = (result[cleanFolderName] || []).concat(fileNames);
                 }
@@ -192,66 +197,35 @@ export class ImageClassificationTool {
             // ── Step 5: Deduplicate similar category names ──
             const folderNames = Object.keys(result);
             if (folderNames.length > 1) {
-                console.log("\x1b[36m[Dedup]\x1b[0m Checking for similar image category names to deduplicate...");
+                emitLog('Checking for similar image category names to deduplicate...', 'pipeline', 'Clustering');
 
-                const userDedupPrompt =
-                    `Review and deduplicate this folder list. Output only the JSON merges object.\n\nFolders:\n${JSON.stringify(folderNames, null, 2)}\n\nJSON:`;
+                const merges = await ClassificationUtility.deduplicateCategories(folderNames, llmService);
 
-                try {
-                    const response = await llmService.openai.chat.completions.create({
-                        model: llmService.modelName,
-                        messages: [
-                            { role: "system", content: dedupCategoryPrompt },
-                            { role: "user", content: userDedupPrompt }
-                        ],
-                    });
-
-                    const dedupeResult = response.choices[0]?.message?.content || "";
-                    const merges = parseDedupeOutput(dedupeResult).merges;
-
-                    if (merges && merges.length > 0) {
-                        console.log(`\x1b[92m[Dedup]\x1b[0m Found ${merges.length} similar image categories to merge.`);
-                        for (const merge of merges) {
-                            if (result[merge.source] && result[merge.target] && merge.source !== merge.target) {
-                                result[merge.target] = result[merge.target].concat(result[merge.source]);
-                                delete result[merge.source];
-                            } else if (result[merge.source] && !result[merge.target]) {
-                                result[merge.target] = result[merge.source];
-                                delete result[merge.source];
-                            }
+                if (merges.length > 0) {
+                    emitLog(`Merged ${merges.length} similar image categories`, 'tool_result', 'Clustering');
+                    for (const merge of merges) {
+                        if (result[merge.source] && result[merge.target] && merge.source !== merge.target) {
+                            result[merge.target] = result[merge.target].concat(result[merge.source]);
+                            delete result[merge.source];
+                        } else if (result[merge.source] && !result[merge.target]) {
+                            result[merge.target] = result[merge.source];
+                            delete result[merge.source];
                         }
                     }
-                } catch (e) {
-                    console.error("Error during image category de-duplication:", e);
                 }
             }
 
+            emitAgentMessage(`${progress.label}: organized into ${Object.keys(result).length} categories`, 'task_update', progress.groupId);
             return result;
 
-        } catch (err) {
+        } catch (err: any) {
             console.error("Error during image classification:", err);
+            emitLog(`Error during classification: ${err?.message ?? err}`, 'error', 'Clustering');
             throw err;
         } finally {
             if (embeddingService) {
                 embeddingService.dispose();
             }
         }
-    }
-}
-
-function parseDedupeOutput(raw: string): { merges: { source: string, target: string }[] } {
-    const match = raw.match(/\{[\s\S]*\}/);
-    if (!match) return { merges: [] };
-
-    try {
-        const parsed = JSON.parse(match[0]);
-        if (!Array.isArray(parsed.merges)) return { merges: [] };
-        return {
-            merges: parsed.merges.filter(
-                (m: any) => typeof m.source === 'string' && typeof m.target === 'string'
-            )
-        };
-    } catch {
-        return { merges: [] };
     }
 }

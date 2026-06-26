@@ -74,7 +74,11 @@ export const GetCategoriesOfImages = ({
             if (allImageFiles.length === 0) return "No unprocessed image files found for these extensions.";
 
             // Delegate to the vision-based classification pipeline
-            const categorized = await ImageClassificationTool.clusterAndNameImages(allImageFiles);
+            const categorized = await ImageClassificationTool.clusterAndNameImages(allImageFiles, {
+                processId: params.ProcessId,
+                groupId: `cluster_${params.ProcessId}_${params.TaskId}`,
+                label: 'Images'
+            });
 
             // Update the category property of the files in the state
             for (const [folderName, fileNames] of Object.entries(categorized)) {
@@ -145,7 +149,11 @@ export const GetCategoriesoffilesofspecificextension = ({
             if (filePaths.length === 0) return "All files of this extension are already processed.";
 
             // Delegate to the new AI Clustering logic using embeddings & AgglomerativeClustering
-            const categorized = await FileClassificationTool.clusterAndNameFiles(filePaths);
+            const categorized = await FileClassificationTool.clusterAndNameFiles(filePaths, {
+                processId: params.ProcessId,
+                groupId: `cluster_${params.ProcessId}_${params.extension}`,
+                label: params.extension
+            });
 
             // Update the category property of the files in the state
             for (const [folderName, fileNames] of Object.entries(categorized)) {

@@ -169,6 +169,29 @@ Note:
 - You then generalize them and suggest a category name that can fill all these documents content provided.
 - The name of the document can sometime be meaningless, so when that happens, focus on the content instead.
 - Just provide one single category name.
+
+EXAMPLES:
+Input:
+Title: Q3_Invoice_2024.pdf
+
+Snippet: Invoice #4471 — Acme Corp. Amount due: $1,240.00. Payment terms: Net 30...
+
+Title: Receipt_Office_Supplies.pdf
+
+Snippet: Staples receipt. Subtotal $84.20, Tax $6.95, Total $91.15...
+Output: Invoices_Receipts
+
+Input:
+Title: chapter3_draft.docx
+
+Snippet: The mitochondria is the powerhouse of the cell, responsible for ATP synthesis through oxidative phosphorylation...
+Output: Biology_Notes
+
+Input:
+Title: meeting_notes_jan.md
+
+Snippet: Standup notes: discussed sprint velocity, blocker on auth service, action items assigned to...
+Output: Work_Meetings
 `;
 
 export const dedupCategoryPrompt =

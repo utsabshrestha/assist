@@ -1,7 +1,29 @@
 import React, { useEffect, useRef, useState } from 'react';
 import type { AgentLog, TodoItem } from '../types/electron.js';
 import { LogEntry } from './LogEntry.js';
+import { LogGroup } from './LogGroup.js';
 import { TodoListPanel } from './TodoListPanel.js';
+
+type LogRow =
+  | { kind: 'single'; log: AgentLog }
+  | { kind: 'group'; name: string; entries: AgentLog[] };
+
+/** Collapses consecutive same-name tool_result entries into one scrollable group, so a long
+ * run of per-file progress (e.g. clustering embedding logs) doesn't bury pipeline/error events. */
+function groupConsecutiveLogs(logs: AgentLog[]): LogRow[] {
+  const rows: LogRow[] = [];
+  for (const log of logs) {
+    const last = rows[rows.length - 1];
+    if (log.type === 'tool_result' && log.name && last?.kind === 'group' && last.name === log.name) {
+      last.entries.push(log);
+    } else if (log.type === 'tool_result' && log.name) {
+      rows.push({ kind: 'group', name: log.name, entries: [log] });
+    } else {
+      rows.push({ kind: 'single', log });
+    }
+  }
+  return rows;
+}
 
 interface LogPanelProps {
   logs: AgentLog[];
@@ -28,6 +50,7 @@ export const LogPanel: React.FC<LogPanelProps> = ({ logs, todoList, isVisible })
 
   const filteredLogs = filter === 'all' ? logs : logs.filter(l => l.type === filter);
   const errorCount = logs.filter(l => l.type === 'error').length;
+  const rows = groupConsecutiveLogs(filteredLogs);
 
   return (
     <div className={`flex flex-col h-full bg-white border-l border-[#e7e5e4] overflow-hidden
@@ -88,9 +111,16 @@ export const LogPanel: React.FC<LogPanelProps> = ({ logs, todoList, isVisible })
           </div>
         ) : (
           <div className="divide-y divide-[#f5f5f4]">
-            {filteredLogs.map((log, i) => (
-              <LogEntry key={`${log.timestamp}-${i}`} log={log} />
-            ))}
+            {rows.map((row, i) =>
+              row.kind === 'group' && row.entries.length > 1 ? (
+                <LogGroup key={`group-${row.entries[0]!.timestamp}-${i}`} name={row.name} entries={row.entries} />
+              ) : (
+                <LogEntry
+                  key={`${(row.kind === 'group' ? row.entries[0]! : row.log).timestamp}-${i}`}
+                  log={row.kind === 'group' ? row.entries[0]! : row.log}
+                />
+              )
+            )}
           </div>
         )}
         <div ref={bottomRef} />
