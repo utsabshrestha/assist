@@ -16,7 +16,7 @@ import { fileAgentRecord, fileAgentState, fileStatus } from '../src/state/fileAg
 import type { TodoStatus } from '../src/state/fileAgentState.js';
 import { LLMService } from '../src/LLMService.js';
 import { documentWorkerAgentSystemPrompt, nonDocumentWorkerAgentSystemPrompt, imageWorkerAgentSystemPrompt } from '../src/prompt/fileAgent.js';
-import { GetCategoriesoffilesofspecificextension, GetCategoriesOfImages, UpdateCategoryNameTool, FinalizeThefolderforthefilesforEachExtensions, workerCompletionStatus, FinalizeThefolderforImages, FinalizeThefolderforNonDocuments, GetCategoriesForNonDocuments, UpdateCategoryNameForNonDocumentsTool, PresentFolderPlanTool, PresentDocumentFolderPlanTool } from './fileCategorizationTools.js';
+import { GetCategoriesoffilesofspecificextension, GetCategoriesOfImages, UpdateCategoryNameTool, FinalizeThefolderforthefilesforEachExtensions, workerCompletionStatus, FinalizeThefolderforImages, FinalizeThefolderforNonDocuments, GetCategoriesForNonDocuments, UpdateCategoryNameForNonDocumentsTool, UpdateCategoryNameForImagesTool, PresentDocumentFolderPlanTool, PresentImageFolderPlanTool, PresentNonDocumentFolderPlanTool } from './fileCategorizationTools.js';
 import { ERROR_ENCOUNTERED, ErrorEncountered, HandOffToExecutionAgent } from '../tools/pipelineTools.js';
 import { ManageTodoListTool, MemoryScratchpadTool} from '../tools/planningAgentTools.js';
 import { emitLog, requestUserInput, emitTodoUpdate, emitAgentMessage } from '../electron/ipcBridge.js';
@@ -146,7 +146,7 @@ const NonDocumentCategorizationAgent = ({
         const llmService = await LLMService.getInstance();
 
         return new Promise(async (resolve) => {
-            const session = new OpenAISession(llmService, nonDocumentWorkerAgentSystemPrompt(state.workspacePath));
+            const session = new OpenAISession(llmService, nonDocumentWorkerAgentSystemPrompt(state.workspacePath, params.TaskId));
             
             const runLoop = async () => {
                 const answer = await requestUserInput('Non-Document Worker');
@@ -156,7 +156,7 @@ const NonDocumentCategorizationAgent = ({
                     return;
                 }
                 try {
-                    const response = await session.prompt(answer, { functions: {GetCategoriesForNonDocuments, PresentFolderPlanTool, FinalizeThefolderforNonDocuments, UpdateCategoryNameForNonDocumentsTool, ErrorEncountered } });
+                    const response = await session.prompt(answer, { functions: {GetCategoriesForNonDocuments, PresentNonDocumentFolderPlanTool, FinalizeThefolderforNonDocuments, UpdateCategoryNameForNonDocumentsTool, ErrorEncountered }, forceToolUse: true });
                     emitLog(response, 'info', 'NonDocWorkerAgent');
                 } catch (e: any) {
                     emitLog(`Error: ${e.message}`, 'error', 'NonDocWorkerAgent');
@@ -173,8 +173,8 @@ const NonDocumentCategorizationAgent = ({
                 await runLoop();
             };
 
-            const response = await session.prompt(`Please start the process. ProcessId = ${params.ProcessId}, TaskId = ${params.TaskId}`, 
-            { functions: { GetCategoriesForNonDocuments, PresentFolderPlanTool, FinalizeThefolderforNonDocuments, UpdateCategoryNameForNonDocumentsTool, ErrorEncountered } });
+            const response = await session.prompt(`Please start the process. ProcessId = ${params.ProcessId}, TaskId = ${params.TaskId}`,
+            { functions: { GetCategoriesForNonDocuments, PresentNonDocumentFolderPlanTool, FinalizeThefolderforNonDocuments, UpdateCategoryNameForNonDocumentsTool, ErrorEncountered }, forceToolUse: true });
             emitLog(response, 'info', 'NonDocWorkerAgent');
 
             if (workerCompletionStatus[`${params.ProcessId}_TaskId${params.TaskId}`]) {
@@ -211,12 +211,12 @@ const ImageCategorizationAgent = ({
                         .flatMap(todoItem => todoItem.extensionList);
 
         return new Promise(async (resolve) => {
-            const session = new OpenAISession(llmService, imageWorkerAgentSystemPrompt(extensions, state.workspacePath));
+            const session = new OpenAISession(llmService, imageWorkerAgentSystemPrompt(extensions, state.workspacePath, params.TaskId));
             
             const runLoop = async () => {
                 const answer = await requestUserInput('Image Worker');
                 try {
-                    const response = await session.prompt(answer, { functions: { GetCategoriesOfImages, PresentFolderPlanTool, UpdateCategoryNameTool, FinalizeThefolderforImages, ErrorEncountered  } });
+                    const response = await session.prompt(answer, { functions: { GetCategoriesOfImages, PresentImageFolderPlanTool, UpdateCategoryNameForImagesTool, FinalizeThefolderforImages, ErrorEncountered  }, forceToolUse: true });
                     emitLog(response, 'info', 'ImageWorkerAgent');
                 } catch (e: any) {
                     emitLog(`Error: ${e.message}`, 'error', 'ImageWorkerAgent');
@@ -233,8 +233,8 @@ const ImageCategorizationAgent = ({
                 await runLoop();
             };
 
-            const response = await session.prompt(`Start organizing these image extensions: [${extensions.join(', ')}] for ProcessId: ${params.ProcessId} and path: ${state.workspacePath}`, 
-            { functions: { GetCategoriesOfImages, PresentFolderPlanTool, UpdateCategoryNameTool, FinalizeThefolderforImages, ErrorEncountered  } });
+            const response = await session.prompt(`Start organizing these image extensions: [${extensions.join(', ')}] for ProcessId: ${params.ProcessId}, TaskId: ${params.TaskId} and path: ${state.workspacePath}`,
+            { functions: { GetCategoriesOfImages, PresentImageFolderPlanTool, UpdateCategoryNameForImagesTool, FinalizeThefolderforImages, ErrorEncountered  }, forceToolUse: true });
 
             emitLog(response, 'info', 'ImageWorkerAgent');
             if(response.includes(ERROR_ENCOUNTERED)){

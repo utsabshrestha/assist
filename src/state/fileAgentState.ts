@@ -42,8 +42,10 @@ export class fileAgentState {
     public globalNotes: string[] = [];
     public planConfirmedFiles : fileStatus[] = [];
     /**
-     * Latest folder plan proposed by PresentFolderPlanTool, keyed by extension (e.g. ".pdf").
-     * This is the ground-truth the LLM reads back from tool responses — never from its own memory.
+     * Latest folder plan, auto-computed by categorization tools. Keyed by extension for
+     * documents (e.g. ".pdf"), or by `__task_${TaskId}` for images/non-documents, where one
+     * task's entire extension list is organized as a single unit. Ground truth the LLM
+     * reads back via Present*FolderPlanTool — never reconstructed from its own memory.
      */
     public proposedFolderPlan: Record<string, FolderPlanEntry[]> = {};
     /**

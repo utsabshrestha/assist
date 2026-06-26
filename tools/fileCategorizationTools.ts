@@ -1,7 +1,6 @@
 import * as path from 'path';
 // import { defineChatSessionFunction } from 'node-llama-cpp';
 import { fileAgentRecord } from '../src/state/fileAgentState.js';
-import type { FolderPlanEntry } from '../src/state/fileAgentState.js';
 import { FileClassificationTool } from './fileClassificationTool.js';
 import { ImageClassificationTool } from './imageClassificationTool.js';
 import { stat } from 'fs';
@@ -19,15 +18,19 @@ export const GetCategoriesOfImages = ({
                 type: "string",
                 description: "The unique process id for this session, provided by the user."
             },
+            TaskId: {
+                type: "number",
+                description: "The Task Id of the todo list item being organized."
+            },
             extensions: {
                 type: "array",
                 items: { type: "string" },
                 description: "Array of image extensions to categorize together (e.g. ['.jpg', '.png', '.jpeg'])."
             }
         },
-        required: [ "ProcessId", "extensions"]
+        required: [ "ProcessId", "TaskId", "extensions"]
     },
-    async handler(params: {ProcessId: string, extensions: string[]}): Promise<string> {
+    async handler(params: {ProcessId: string, TaskId: number, extensions: string[]}): Promise<string> {
         console.log(`\x1b[95m[Worker Tool]\x1b[0m GetCategoriesOfImages → ${params.ProcessId} for ${params.extensions.join(', ')}`);
         try {
             const state = fileAgentRecord[params.ProcessId];
@@ -60,6 +63,13 @@ export const GetCategoriesOfImages = ({
                     }
                 }
             }
+
+            // Auto-compute the folder plan now — the LLM never needs to construct paths itself.
+            const baseFolder = `${state.workspacePath}/Images`;
+            state.proposedFolderPlan[`__task_${params.TaskId}`] = Object.keys(categorized).map(category => ({
+                category,
+                folder: `${baseFolder}/${category}`
+            }));
 
             // Prepare a summarized payload (max 3 files per category) to save tokens
             const categorizedSummary: Record<string, string[]> = {};
@@ -262,68 +272,45 @@ export const FinalizeThefolderforthefilesforEachExtensions = ({
 });
 
 export const FinalizeThefolderforImages = ({
-     description: "This tool will finalize the folder for the files types you have passed.",
+     description: "Finalizes the already-prepared folder plan for this images task. The plan was already computed automatically — you do not need to build or pass it.",
     params: {
         type: "object",
         properties: {
-            json: {
-                type: "object",
-                description: "An object containing extensions, category, and folder structure.",
-                properties: {
-                    extensions: {
-                        type: "array",
-                        items: { type: "string" },
-                        description: "Array of extensions being finalized (e.g. ['.jpg', '.png'])."
-                    },
-                    folderStructure: {
-                        type: "array",
-                        items: {
-                            type: "object",
-                            properties: {
-                                category: {
-                                    type : "string",
-                                    description: "category name"
-                                },
-                                folder: {
-                                    type: "string",
-                                    description: "absolute path of the folder to be created for this category."
-                                }
-                            }
-                        }
-                    }
-                }
-            },
             ProcessId: {
                 type: "string",
                 description: "The unique process id for this session, provided by the user."
+            },
+            TaskId: {
+                type: "number",
+                description: "The Task Id of the todo list item being organized."
             }
         },
-        required: ["json", "ProcessId"]
+        required: ["ProcessId", "TaskId"]
     },
-    async handler(params: {ProcessId: string, json: any}): Promise<string> {
+    async handler(params: {ProcessId: string, TaskId: number}): Promise<string> {
         console.log(`\x1b[95m[Worker Tool]\x1b[0m FinalizeThefolderforImages → ${params.ProcessId}`);
         const state = fileAgentRecord[params.ProcessId];
         if (!state) return "Error: Invalid ProcessId.";
 
-        const exts = params.json.extensions;
-        const folderStructure = params.json.folderStructure;
-        
+        const exts = state.todoList.filter(task => task.id == params.TaskId).flatMap(todo => todo.extensionList);
+        const folderStructure = state.proposedFolderPlan[`__task_${params.TaskId}`] ?? [];
+
         if (!exts || exts.length === 0) {
-            return "Error: No extensions provided in the json object.";
+            return "Error: No extensions found for this task id.";
         }
 
         let updatedCount = 0;
-        
+
         for (const ext of exts) {
             if (!state.fileByExtension[ext]) continue;
 
             // Iterate through every file of this extension in the global state
             for (const file of state.fileByExtension[ext]) {
                 // Find mapping by exact category match, generic default match, or fallback to the first folder provided if no category exists
-                const mapping = folderStructure.find((f: any) => f.category === file.category) 
+                const mapping = folderStructure.find((f: any) => f.category === file.category)
                              || folderStructure.find((f: any) => !f.category || f.category.trim() === "")
                              || (folderStructure.length === 1 ? folderStructure[0] : null);
-                
+
                 if (mapping && mapping.folder) {
                     const resolvedTarget = path.resolve(mapping.folder);
                     if (!resolvedTarget.startsWith(path.resolve(state.workspacePath))) {
@@ -343,32 +330,10 @@ export const FinalizeThefolderforImages = ({
 });
 
 export const FinalizeThefolderforNonDocuments = ({
-     description: "This tool will finalize the folder for the files types you have passed.",
+     description: "Finalizes the already-prepared folder plan for this task. The plan was already computed automatically — you do not need to build or pass it.",
     params: {
         type: "object",
         properties: {
-            json: {
-                type: "object",
-                description: "An object containing category, and folder structure.",
-                properties: {
-                    folderStructure: {
-                        type: "array",
-                        items: {
-                            type: "object",
-                            properties: {
-                                category: {
-                                    type : "string",
-                                    description: "category name"
-                                },
-                                folder: {
-                                    type: "string",
-                                    description: "absolute path of the folder to be created for this category."
-                                }
-                            }
-                        }
-                    }
-                }
-            },
             ProcessId: {
                 type: "string",
                 description: "The unique process id for this session, provided by the user."
@@ -378,16 +343,16 @@ export const FinalizeThefolderforNonDocuments = ({
                 description: "Task id of this task."
             }
         },
-        required: ["json", "ProcessId"]
+        required: ["ProcessId", "TaskId"]
     },
-    async handler(params: {ProcessId: string, TaskId: number, json: any}): Promise<string> {
-        console.log(`\x1b[95m[Worker Tool]\x1b[0m FinalizeThefolderforImages → ${params.ProcessId}`);
+    async handler(params: {ProcessId: string, TaskId: number}): Promise<string> {
+        console.log(`\x1b[95m[Worker Tool]\x1b[0m FinalizeThefolderforNonDocuments → ${params.ProcessId}`);
         const state = fileAgentRecord[params.ProcessId];
         if (!state) return "Error: Invalid ProcessId.";
 
         const extensionsList = state.todoList.filter(task => task.id == params.TaskId).flatMap(todo => todo.extensionList);
-        const folderStructure = params.json.folderStructure;
-        
+        const folderStructure = state.proposedFolderPlan[`__task_${params.TaskId}`] ?? [];
+
         if (!extensionsList || extensionsList.length === 0) {
             return "Error: No extensions provided for this task id.";
         }
@@ -454,7 +419,7 @@ export const GetCategoriesForNonDocuments = {
                 categoriesList.push(category);
                 for (const ext of extensions) {
                     if (ext === undefined) continue;
-                    
+
                     // Ensure the array exists before iterating
                     if (state.fileByExtension[ext]) {
                         for (const file of state.fileByExtension[ext]) {
@@ -463,6 +428,13 @@ export const GetCategoriesForNonDocuments = {
                     }
                 }
             }
+
+            // Auto-compute the folder plan now — the LLM never needs to construct paths itself.
+            const baseFolder = state.workspacePath;
+            state.proposedFolderPlan[`__task_${params.TaskId}`] = categoriesList.map(category => ({
+                category,
+                folder: `${baseFolder}/${category}`
+            }));
 
             return JSON.stringify(categoriesList);
         } catch (e: any) {
@@ -522,65 +494,75 @@ export const UpdateCategoryNameForNonDocumentsTool = ({
 });
 
 /**
- * PresentFolderPlanTool
+ * UpdateCategoryNameForImagesTool
  *
- * The agent calls this tool instead of rendering the folder list as plain text.
- * It saves the plan to state (ground truth), then emits a structured IPC event
- * to the renderer which shows an Approve / Deny / Message UI panel.
- * Blocks until the user responds, then returns a typed sentinel string.
- *
- * Return values:
- *   "USER_APPROVED"              → agent should call FinalizeThe... immediately
- *   "USER_MESSAGE: <text>"       → agent should interpret as rename/merge/freeform request
+ * Image-specific sibling of UpdateCategoryNameForNonDocumentsTool. Images' folder plan
+ * is keyed by TaskId (not by extension, since one task may cover multiple image extensions
+ * organized as a single unit), so this rebuilds state.proposedFolderPlan[`__task_${TaskId}`]
+ * the same way the non-documents version does.
  */
-export const PresentFolderPlanTool = ({
-    description: "Present the proposed folder plan to the user via a structured UI panel with Approve and Request Changes options. Call this whenever you want the user to review the current folder structure. It saves the plan to memory and blocks until the user responds. Returns 'USER_APPROVED' or 'USER_MESSAGE: <their request>'.",
+export const UpdateCategoryNameForImagesTool = ({
+    description: "Updates the category name from old category to new category name. Use this when the user wants to rename a proposed category before finalizing folders.",
     params: {
         type: "object",
         properties: {
-            ProcessId: { type: "string", description: "The unique process id for this session." },
-            extension: { type: "string", description: "The file extension being organized, e.g. '.pdf'." },
-            folderPlan: {
-                type: "array",
-                description: "The list of proposed folders. Each item has a category name and its full absolute path.",
-                items: {
-                    type: "object",
-                    properties: {
-                        category: { type: "string", description: "Category name, e.g. 'invoices'" },
-                        folder: { type: "string", description: "Full absolute folder path, e.g. '/workspace/pdf/invoices'" }
-                    },
-                    required: ["category", "folder"]
-                }
-            }
+            ProcessId: { type: "string" },
+            TaskId: { type: "number", description: "Task id of the task you are working on" },
+            oldCategoryName: { type: "string", description: "The existing category name to be changed." },
+            newCategoryName: { type: "string", description: "The new category name requested by the user." }
         },
-        required: ["ProcessId", "extension", "folderPlan"]
+        required: ["ProcessId", "TaskId", "oldCategoryName", "newCategoryName"]
     },
-    async handler(params: { ProcessId: string; extension: string; folderPlan: FolderPlanEntry[] }): Promise<string> {
-        console.log(`\x1b[95m[Worker Tool]\x1b[0m PresentFolderPlanTool → ${params.ProcessId} / ${params.extension}`);
+    async handler(params: {ProcessId: string, TaskId: number, oldCategoryName: string, newCategoryName: string}): Promise<string> {
+        console.log(`\x1b[95m[Worker Tool]\x1b[0m UpdateCategoryNameForImagesTool -> '${params.oldCategoryName}' to '${params.newCategoryName}'`);
         const state = fileAgentRecord[params.ProcessId];
         if (!state) return "Error: Invalid ProcessId.";
 
-        // Persist the proposed plan to state — this becomes the ground truth
-        state.proposedFolderPlan[params.extension] = params.folderPlan;
+        const extensionsList = state.todoList.filter(task => task.id == params.TaskId).flatMap(todo => todo.extensionList);
 
-        // Ask the renderer to show the structured Approve/Message UI and wait for the user's response
-        const response = await requestFolderReview(params.extension, params.folderPlan);
+        const filesWithOldCategory = state.fileListData.filter(file => file.category == params.oldCategoryName);
 
-        if (response.action === 'approve') {
-            return 'USER_APPROVED';
+        let updatedCount = 0;
+        for (const file of filesWithOldCategory) {
+            if (extensionsList.includes(file.ext)) {
+                file.category = params.newCategoryName;
+                updatedCount++;
+            }
         }
-        // Both 'message' and 'deny' return a free-text instruction for the agent to act on
-        return `USER_MESSAGE: ${response.message ?? 'User declined without a message. Ask what they would like to change.'}`;
+
+        const planKey = `__task_${params.TaskId}`;
+        if (state.proposedFolderPlan[planKey]) {
+            const plan = state.proposedFolderPlan[planKey];
+            const baseFolder = `${state.workspacePath}/Images`;
+
+            const filtered = plan.filter(e => e.category !== params.oldCategoryName);
+            if (!filtered.find(e => e.category === params.newCategoryName)) {
+                filtered.push({ category: params.newCategoryName, folder: `${baseFolder}/${params.newCategoryName}` });
+            }
+            state.proposedFolderPlan[planKey] = filtered;
+        }
+
+        const updatedPlan = state.proposedFolderPlan[`__task_${params.TaskId}`] ?? [];
+        return JSON.stringify({
+            message: `Successfully updated category name from '${params.oldCategoryName}' to '${params.newCategoryName}' for ${updatedCount} files.`,
+            updatedFolderPaths: updatedPlan
+        });
     }
 });
 
 /**
  * PresentDocumentFolderPlanTool
  *
- * Document-specific sibling of PresentFolderPlanTool. The folder plan for a document
- * extension is already computed automatically by GetCategoriesoffilesofspecificextension
- * (and kept up to date by UpdateCategoryNameTool), so this tool never accepts an
- * LLM-authored folderPlan param — it only reads state.proposedFolderPlan as ground truth.
+ * Shows the user a structured Approve/Deny/Message UI panel for the proposed folder
+ * plan and blocks until they respond, returning a typed sentinel string.
+ * The folder plan for a document extension is already computed automatically by
+ * GetCategoriesoffilesofspecificextension (and kept up to date by UpdateCategoryNameTool),
+ * so this tool never accepts an LLM-authored folderPlan param — it only reads
+ * state.proposedFolderPlan as ground truth.
+ *
+ * Return values:
+ *   "USER_APPROVED"              → agent should call FinalizeThe... immediately
+ *   "USER_MESSAGE: <text>"       → agent should interpret as rename/merge/freeform request
  */
 export const PresentDocumentFolderPlanTool = ({
     description: "Present the already-prepared folder plan for this document extension to the user via a structured UI panel with Approve and Request Changes options. The plan was already computed automatically — you do not need to build or pass it. Returns 'USER_APPROVED' or 'USER_MESSAGE: <their request>'.",
@@ -601,6 +583,72 @@ export const PresentDocumentFolderPlanTool = ({
 
         // Ask the renderer to show the structured Approve/Message UI and wait for the user's response
         const response = await requestFolderReview(params.extension, folderPlan);
+
+        if (response.action === 'approve') {
+            return 'USER_APPROVED';
+        }
+        return `USER_MESSAGE: ${response.message ?? 'User declined without a message. Ask what they would like to change.'}`;
+    }
+});
+
+/**
+ * PresentImageFolderPlanTool
+ *
+ * Image-specific sibling of PresentFolderPlanTool. The folder plan for the images task
+ * is already computed automatically by GetCategoriesOfImages (and kept up to date by
+ * UpdateCategoryNameForImagesTool), keyed by TaskId — never accepts an LLM-authored folderPlan.
+ */
+export const PresentImageFolderPlanTool = ({
+    description: "Present the already-prepared folder plan for these image extensions to the user via a structured UI panel with Approve and Request Changes options. The plan was already computed automatically — you do not need to build or pass it. Returns 'USER_APPROVED' or 'USER_MESSAGE: <their request>'.",
+    params: {
+        type: "object",
+        properties: {
+            ProcessId: { type: "string", description: "The unique process id for this session." },
+            TaskId: { type: "number", description: "The Task Id of the todo list item being organized." }
+        },
+        required: ["ProcessId", "TaskId"]
+    },
+    async handler(params: { ProcessId: string; TaskId: number }): Promise<string> {
+        console.log(`\x1b[95m[Worker Tool]\x1b[0m PresentImageFolderPlanTool → ${params.ProcessId} / Task ${params.TaskId}`);
+        const state = fileAgentRecord[params.ProcessId];
+        if (!state) return "Error: Invalid ProcessId.";
+
+        const folderPlan = state.proposedFolderPlan[`__task_${params.TaskId}`] ?? [];
+
+        const response = await requestFolderReview("__images__", folderPlan);
+
+        if (response.action === 'approve') {
+            return 'USER_APPROVED';
+        }
+        return `USER_MESSAGE: ${response.message ?? 'User declined without a message. Ask what they would like to change.'}`;
+    }
+});
+
+/**
+ * PresentNonDocumentFolderPlanTool
+ *
+ * Non-document-specific sibling of PresentFolderPlanTool. The folder plan for the task
+ * is already computed automatically by GetCategoriesForNonDocuments (and kept up to date
+ * by UpdateCategoryNameForNonDocumentsTool), keyed by TaskId — never accepts an LLM-authored folderPlan.
+ */
+export const PresentNonDocumentFolderPlanTool = ({
+    description: "Present the already-prepared folder plan for this task to the user via a structured UI panel with Approve and Request Changes options. The plan was already computed automatically — you do not need to build or pass it. Returns 'USER_APPROVED' or 'USER_MESSAGE: <their request>'.",
+    params: {
+        type: "object",
+        properties: {
+            ProcessId: { type: "string", description: "The unique process id for this session." },
+            TaskId: { type: "number", description: "The Task Id of the todo list item being organized." }
+        },
+        required: ["ProcessId", "TaskId"]
+    },
+    async handler(params: { ProcessId: string; TaskId: number }): Promise<string> {
+        console.log(`\x1b[95m[Worker Tool]\x1b[0m PresentNonDocumentFolderPlanTool → ${params.ProcessId} / Task ${params.TaskId}`);
+        const state = fileAgentRecord[params.ProcessId];
+        if (!state) return "Error: Invalid ProcessId.";
+
+        const folderPlan = state.proposedFolderPlan[`__task_${params.TaskId}`] ?? [];
+
+        const response = await requestFolderReview("__non_documents__", folderPlan);
 
         if (response.action === 'approve') {
             return 'USER_APPROVED';
