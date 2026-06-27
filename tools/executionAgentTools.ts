@@ -3,7 +3,7 @@ import { fileAgentRecord, fileStatus } from "../src/state/fileAgentState.js";
 import { mkdir } from 'node:fs/promises';
 import { rename } from 'node:fs/promises'
 import { ErrorEncountered } from "./pipelineTools.js";
-import { emitAgentMessage, emitLog, requestUserInput } from "../electron/ipcBridge.js";
+import { emitAgentMessage, emitLog, requestExecutionConfirmation } from "../electron/ipcBridge.js";
 
 const getFinalPlanConfirmation = ({
     description: "Prints the complete proposed file movement plan to the UI and asks the user for confirmation. Call this ONLY after finalizing all folders for all extensions. The LLM will receive the user's response to either proceed or make changes.",
@@ -13,11 +13,15 @@ const getFinalPlanConfirmation = ({
             ProcessId: {
                 type: "string",
                 description: "The unique process id for this session."
+            },
+            statusMessage: {
+                type: "string",
+                description: "A short, friendly first-person message telling the user what you're about to do, e.g. 'Let's review the final plan before I move anything...'. This will be shown directly to the user."
             }
         },
-        required: ["ProcessId"]
+        required: ["ProcessId", "statusMessage"]
     },
-    async handler(params: {ProcessId: string}): Promise<string> {
+    async handler(params: {ProcessId: string, statusMessage: string}): Promise<string> {
         const state = fileAgentRecord[params.ProcessId];
         if (!state) return "Error: Invalid ProcessId.";
 
@@ -33,33 +37,20 @@ const getFinalPlanConfirmation = ({
             plan[file.fileNewDestination]?.push(file.fileName);
         }
 
-        // Build a readable plan summary for the log panel
-        let planText = "📦 PROPOSED MOVEMENT PLAN\n";
-        planText += "=".repeat(48) + "\n";
-        for (const [folder, fileNames] of Object.entries(plan)) {
-            planText += `\n📁 ${folder}\n`;
-            fileNames.slice(0, 5).forEach(f => { planText += `   📄 ${f}\n`; });
-            if (fileNames.length > 5) planText += `   ... and ${fileNames.length - 5} more files\n`;
-        }
-        if (unassignedCount > 0) {
-            planText += `\n⚠️ WARNING: ${unassignedCount} files have NO destination folder assigned.\n`;
-        }
-        planText += "=".repeat(48);
+        emitAgentMessage(params.statusMessage);
 
-        // emitLog(planText, 'info', 'ExecutionPlan');
-        emitAgentMessage(planText, 'agent');
+        // Ask the user for confirmation via the structured execution-confirm panel
+        const response = await requestExecutionConfirmation(plan, unassignedCount);
 
-        // Ask the user for confirmation via the UI input box
-        const answer = await requestUserInput("Confirm plan? [Type 'confirm' to proceed, or describe changes]");
-        const trimmed = answer.trim().toLowerCase();
-
-        if (trimmed === 'confirm' || trimmed === 'y' || trimmed === 'yes') {
+        if (response.action === 'approve') {
             state.planConfirmed = true;
             state.planConfirmedFiles = planConfirmedFiles;
+            emitAgentMessage("Got it — moving your files now...");
             return "User confirmed the plan exactly as is. You may proceed to create the folders and execute the move plan.";
         } else {
             state.planConfirmed = false;
-            return `User did not confirm the plan. This is what user said about the plan : "${answer}". Please adjust the categories/folders as requested by the user using the Finalize tool again, or respond accordingly.`;
+            emitAgentMessage("Got it — let me adjust that...");
+            return `User did not confirm the plan. This is what user said about the plan : "${response.message ?? 'No reason given.'}". Please adjust the categories/folders as requested by the user using the Finalize tool again, or respond accordingly.`;
         }
     }
 });
@@ -72,12 +63,17 @@ const Executetheprocess = ({
             ProcessId: {
                 type: "string",
                 description: "The unique process id for this session."
+            },
+            statusMessage: {
+                type: "string",
+                description: "A short, friendly first-person message telling the user what you're about to do, e.g. 'Moving your files into their new folders now...'. This will be shown directly to the user."
             }
         },
-        required: ["ProcessId"]
+        required: ["ProcessId", "statusMessage"]
     },
-    async handler(params: {ProcessId: string}): Promise<string> {
+    async handler(params: {ProcessId: string, statusMessage: string}): Promise<string> {
         emitLog(`Executetheprocess started`, 'tool_call', 'Executetheprocess');
+        emitAgentMessage(params.statusMessage);
         const state = fileAgentRecord[params.ProcessId];
         if (!state) return "Error: Invalid ProcessId.";
 

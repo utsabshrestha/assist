@@ -1,30 +1,13 @@
 import React, { useState, useCallback, useRef, useEffect } from 'react';
-import { ListChecks, ChevronRight, Check } from 'lucide-react';
-import type { ScopeSelectionRequest, CategorySummary } from '../types/electron.js';
+import { FileCheck2, ChevronRight, Check } from 'lucide-react';
+import type { ExecutionConfirmRequest } from '../types/electron.js';
 
-interface ScopeSelectionPanelProps {
-  request: ScopeSelectionRequest;
-  onSubmit: (inputId: string, action: 'submit' | 'message', selected?: CategorySummary, message?: string) => void;
+interface ExecutionConfirmPanelProps {
+  request: ExecutionConfirmRequest;
+  onSubmit: (inputId: string, action: 'approve' | 'message', message?: string) => void;
 }
 
-type CategoryKey = keyof CategorySummary;
-
-const CATEGORY_LABELS: Record<CategoryKey, string> = {
-  documents: 'Documents',
-  images: 'Images',
-  'non-documents': 'Non-Documents',
-};
-
-export const ScopeSelectionPanel: React.FC<ScopeSelectionPanelProps> = ({ request, onSubmit }) => {
-  const categoryKeys = (Object.keys(request.categories) as CategoryKey[]).filter(
-    key => request.categories[key].length > 0
-  );
-
-  const [checked, setChecked] = useState<Record<CategoryKey, boolean>>(() => {
-    const initial = {} as Record<CategoryKey, boolean>;
-    categoryKeys.forEach(key => { initial[key] = true; });
-    return initial;
-  });
+export const ExecutionConfirmPanel: React.FC<ExecutionConfirmPanelProps> = ({ request, onSubmit }) => {
   const [message, setMessage] = useState('');
   const [mode, setMode] = useState<'idle' | 'changes'>('idle');
   const [submitted, setSubmitted] = useState(false);
@@ -38,29 +21,17 @@ export const ScopeSelectionPanel: React.FC<ScopeSelectionPanelProps> = ({ reques
     }
   }, [mode]);
 
-  const toggleCategory = useCallback((key: CategoryKey) => {
-    setChecked(prev => ({ ...prev, [key]: !prev[key] }));
-  }, []);
-
-  const anyChecked = categoryKeys.some(key => checked[key]);
-  const approvedLabels = categoryKeys.filter(key => checked[key]).map(key => CATEGORY_LABELS[key]);
-
-  const handleContinue = useCallback(() => {
-    if (!anyChecked) return;
-    const selected: CategorySummary = { documents: [], images: [], "non-documents": [] };
-    categoryKeys.forEach(key => {
-      if (checked[key]) selected[key] = request.categories[key];
-    });
+  const handleApprove = useCallback(() => {
     setSubmitted(true);
-    onSubmit(request.inputId, 'submit', selected);
-  }, [anyChecked, categoryKeys, checked, request, onSubmit]);
+    onSubmit(request.inputId, 'approve');
+  }, [request.inputId, onSubmit]);
 
   const handleSendMessage = useCallback(() => {
     const trimmed = message.trim();
     if (!trimmed) return;
     setSubmitted(true);
     setSubmittedMessage(trimmed);
-    onSubmit(request.inputId, 'message', undefined, trimmed);
+    onSubmit(request.inputId, 'message', trimmed);
   }, [request.inputId, message, onSubmit]);
 
   const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
@@ -70,9 +41,12 @@ export const ScopeSelectionPanel: React.FC<ScopeSelectionPanelProps> = ({ reques
     }
   };
 
+  const folderEntries = Object.entries(request.plan);
+  const totalFiles = folderEntries.reduce((sum, [, files]) => sum + files.length, 0);
+
   return (
     <div
-      className="scope-selection-panel"
+      className="execution-confirm-panel"
       style={{
         background: 'linear-gradient(135deg, #fdf1ec 0%, #f9f1ea 100%)',
         border: '1px solid #e8cab8',
@@ -93,20 +67,32 @@ export const ScopeSelectionPanel: React.FC<ScopeSelectionPanelProps> = ({ reques
             flexShrink: 0,
           }}
         >
-          <ListChecks size={16} color="white" strokeWidth={2} />
+          <FileCheck2 size={16} color="white" strokeWidth={2} />
         </div>
 
         <div>
-          <span style={{ fontSize: 13, fontWeight: 600, color: '#57341f' }}>
-            What would you like to organize?
-          </span>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+            <span style={{ fontSize: 13, fontWeight: 600, color: '#57341f' }}>
+              Final Move Plan
+            </span>
+            <span
+              style={{
+                fontSize: 10, fontWeight: 700, letterSpacing: '0.05em',
+                padding: '2px 7px', borderRadius: 99,
+                background: 'linear-gradient(135deg, #c2613d, #a8502f)',
+                color: 'white',
+              }}
+            >
+              {totalFiles} FILES
+            </span>
+          </div>
           <p style={{ fontSize: 12, color: '#8a5a3d', margin: '2px 0 0' }}>
-            {request.totalFileCount} files found ({request.totalFileSize}). Pick the categories to organize.
+            Files will be moved on disk once approved — review carefully.
           </p>
         </div>
       </div>
 
-      {/* Category checklist — stays visible pre-submit, and re-expandable after */}
+      {/* Plan table — stays visible pre-submit, and re-expandable after */}
       {(!submitted || !resultCollapsed) && (
         <div
           style={{
@@ -115,41 +101,51 @@ export const ScopeSelectionPanel: React.FC<ScopeSelectionPanelProps> = ({ reques
             overflow: 'hidden',
             border: '1px solid #f3ddcd',
             marginBottom: 14,
+            maxHeight: 220,
+            overflowY: 'auto',
           }}
         >
-          {categoryKeys.map((key, i) => (
-            <label
-              key={key}
-              htmlFor={`scope-cb-${request.inputId}-${key}`}
+          {folderEntries.map(([folder, fileNames], i) => (
+            <div
+              key={folder}
               style={{
-                display: 'flex', alignItems: 'flex-start', gap: 10,
-                padding: '10px 12px', cursor: submitted ? 'default' : 'pointer',
-                borderBottom: i < categoryKeys.length - 1 ? '1px solid #f3ddcd' : 'none',
+                padding: '8px 12px',
+                borderBottom: i < folderEntries.length - 1 ? '1px solid #f3ddcd' : 'none',
               }}
             >
-              <input
-                id={`scope-cb-${request.inputId}-${key}`}
-                type="checkbox"
-                checked={!!checked[key]}
-                onChange={() => toggleCategory(key)}
-                disabled={submitted}
-                style={{ marginTop: 2, width: 15, height: 15, cursor: submitted ? 'default' : 'pointer', accentColor: '#c2613d' }}
-              />
-              <div>
-                <div style={{ fontSize: 13, fontWeight: 600, color: '#57341f' }}>
-                  {CATEGORY_LABELS[key]}
-                </div>
-                <div
+              <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 4 }}>
+                <span
                   style={{
-                    fontSize: 11, color: '#8a5a3d', marginTop: 2,
+                    display: 'inline-block',
+                    width: 7, height: 7, borderRadius: '50%',
+                    background: 'linear-gradient(135deg, #c2613d, #a8502f)',
+                    flexShrink: 0,
+                  }}
+                />
+                <span
+                  title={folder}
+                  style={{
+                    fontSize: 12, fontWeight: 600, color: '#57341f',
                     fontFamily: 'ui-monospace, SFMono-Regular, Menlo, monospace',
+                    overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
                   }}
                 >
-                  {request.categories[key].join(', ')}
-                </div>
+                  {folder}
+                </span>
+                <span style={{ fontSize: 10, color: '#8a5a3d', flexShrink: 0 }}>({fileNames.length})</span>
               </div>
-            </label>
+              <div style={{ paddingLeft: 13, fontSize: 11, color: '#8a5a3d' }}>
+                {fileNames.slice(0, 5).join(', ')}
+                {fileNames.length > 5 && ` …and ${fileNames.length - 5} more`}
+              </div>
+            </div>
           ))}
+
+          {request.unassignedCount > 0 && (
+            <div style={{ padding: '8px 12px', background: '#fef2f2', fontSize: 11, color: '#991b1b' }}>
+              ⚠ {request.unassignedCount} file(s) have no destination folder assigned and will be skipped.
+            </div>
+          )}
         </div>
       )}
 
@@ -159,27 +155,25 @@ export const ScopeSelectionPanel: React.FC<ScopeSelectionPanelProps> = ({ reques
           {mode === 'idle' && (
             <div style={{ display: 'flex', gap: 8 }}>
               <button
-                id={`continue-btn-${request.inputId}`}
-                onClick={handleContinue}
-                disabled={!anyChecked}
+                id={`execution-approve-btn-${request.inputId}`}
+                onClick={handleApprove}
                 style={{
                   display: 'flex', alignItems: 'center', gap: 6,
-                  padding: '8px 18px', borderRadius: 8, border: 'none',
-                  cursor: anyChecked ? 'pointer' : 'not-allowed',
-                  background: anyChecked ? 'var(--color-accent)' : '#f3ddcd',
-                  color: anyChecked ? 'white' : '#b89178', fontSize: 13, fontWeight: 600,
-                  boxShadow: anyChecked ? '0 2px 8px rgba(194,97,61,0.3)' : 'none',
+                  padding: '8px 18px', borderRadius: 8, border: 'none', cursor: 'pointer',
+                  background: 'var(--color-accent)',
+                  color: 'white', fontSize: 13, fontWeight: 600,
+                  boxShadow: '0 2px 8px rgba(194,97,61,0.3)',
                   transition: 'opacity 0.15s',
                 }}
-                onMouseEnter={e => { if (anyChecked) e.currentTarget.style.opacity = '0.88'; }}
-                onMouseLeave={e => { if (anyChecked) e.currentTarget.style.opacity = '1'; }}
+                onMouseEnter={e => (e.currentTarget.style.opacity = '0.88')}
+                onMouseLeave={e => (e.currentTarget.style.opacity = '1')}
               >
                 <Check size={14} strokeWidth={2.5} />
-                Continue
+                Approve & Move Files
               </button>
 
               <button
-                id={`scope-changes-btn-${request.inputId}`}
+                id={`execution-changes-btn-${request.inputId}`}
                 onClick={() => setMode('changes')}
                 style={{
                   display: 'flex', alignItems: 'center', gap: 6,
@@ -191,7 +185,11 @@ export const ScopeSelectionPanel: React.FC<ScopeSelectionPanelProps> = ({ reques
                 onMouseEnter={e => (e.currentTarget.style.background = '#fdf1ec')}
                 onMouseLeave={e => (e.currentTarget.style.background = 'white')}
               >
-                Something else
+                <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                  <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/>
+                  <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/>
+                </svg>
+                Request Changes
               </button>
             </div>
           )}
@@ -199,17 +197,17 @@ export const ScopeSelectionPanel: React.FC<ScopeSelectionPanelProps> = ({ reques
           {mode === 'changes' && (
             <div>
               <p style={{ fontSize: 12, color: '#8a5a3d', marginBottom: 8, fontWeight: 500 }}>
-                Tell me what you'd like instead (e.g. "also include .epub files"):
+                Describe what you'd like to change (e.g. "move .docx into Documents/Reports instead"):
               </p>
               <div style={{ display: 'flex', gap: 8, alignItems: 'flex-end' }}>
                 <textarea
                   ref={inputRef}
-                  id={`scope-changes-input-${request.inputId}`}
+                  id={`execution-changes-input-${request.inputId}`}
                   value={message}
                   onChange={e => setMessage(e.target.value)}
                   onKeyDown={handleKeyDown}
                   rows={2}
-                  placeholder="e.g. also include .epub files…"
+                  placeholder="e.g. keep invoices separate from receipts…"
                   style={{
                     flex: 1, padding: '8px 12px', borderRadius: 8, resize: 'none',
                     border: '1px solid #e8cab8', fontSize: 13, color: '#57341f',
@@ -220,7 +218,7 @@ export const ScopeSelectionPanel: React.FC<ScopeSelectionPanelProps> = ({ reques
                   onBlur={e => (e.currentTarget.style.borderColor = '#e8cab8')}
                 />
                 <button
-                  id={`scope-send-changes-btn-${request.inputId}`}
+                  id={`execution-send-changes-btn-${request.inputId}`}
                   onClick={handleSendMessage}
                   disabled={!message.trim()}
                   style={{
@@ -269,7 +267,7 @@ export const ScopeSelectionPanel: React.FC<ScopeSelectionPanelProps> = ({ reques
             {submittedMessage ? 'Sent a message' : 'Approved'}
           </span>
           <span>
-            {submittedMessage ? `— "${submittedMessage}"` : `— ${approvedLabels.join(' · ')}`}
+            {submittedMessage ? `— "${submittedMessage}"` : `— moving ${totalFiles} file(s)`}
           </span>
         </button>
       )}

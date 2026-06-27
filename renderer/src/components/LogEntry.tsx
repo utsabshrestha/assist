@@ -43,7 +43,7 @@ export const LogEntry: React.FC<LogEntryProps> = ({ log }) => {
         {displayContent}
         {isLong && (
           <button
-            className="ml-1 text-[#2563eb] hover:text-[#1d4ed8] text-[10px] font-sans font-medium underline"
+            className="ml-1 text-[#c2613d] hover:text-[#a8502f] text-[10px] font-sans font-medium underline"
             onClick={e => { e.stopPropagation(); setExpanded(v => !v); }}
           >
             {expanded ? 'less' : 'more'}

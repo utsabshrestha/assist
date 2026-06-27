@@ -1,8 +1,12 @@
-import React, { useEffect, useState, useCallback, useRef } from 'react';
-import type { AgentMessage, AgentLog, AgentStage, FolderReviewRequest, ScopeSelectionRequest, CategorySummary, TodoItem } from './types/electron.js';
+import React, { useEffect, useState, useCallback, useRef, useMemo } from 'react';
+import type { AgentMessage, AgentLog, AgentStage, FolderReviewRequest, ScopeSelectionRequest, ExecutionConfirmRequest, CategorySummary, TodoItem } from './types/electron.js';
 import { ChatPanel } from './components/ChatPanel.js';
 import { LogPanel } from './components/LogPanel.js';
 import { StageBadge } from './components/StageBadge.js';
+
+export type TimelineRow =
+  | { kind: 'message'; data: AgentMessage }
+  | { kind: 'tool_call'; data: AgentLog };
 
 const App: React.FC = () => {
   const [messages, setMessages] = useState<AgentMessage[]>([]);
@@ -11,10 +15,22 @@ const App: React.FC = () => {
   const [isThinking, setIsThinking] = useState(false);
   const [hasStarted, setHasStarted] = useState(false);
   const [logPanelVisible, setLogPanelVisible] = useState(true);
-  const [pendingInput, setPendingInput] = useState<{ promptLabel: string; inputId: string } | null>(null);
   const [pendingFolderReview, setPendingFolderReview] = useState<FolderReviewRequest | null>(null);
   const [pendingScopeSelection, setPendingScopeSelection] = useState<ScopeSelectionRequest | null>(null);
+  const [pendingExecutionConfirm, setPendingExecutionConfirm] = useState<ExecutionConfirmRequest | null>(null);
   const [todoList, setTodoList] = useState<TodoItem[]>([]);
+
+  // Merge narration (messages) and pipeline milestones (logs) into one chronological
+  // timeline feed for the main panel. Raw tool_call/tool_result/info/error entries stay
+  // log-only (side panel) — every tool now carries its own narrated statusMessage, so the
+  // raw call text would just be redundant noise here.
+  const timelineRows = useMemo<TimelineRow[]>(() => {
+    const rows: TimelineRow[] = [
+      ...messages.map(data => ({ kind: 'message' as const, data })),
+      ...logs.filter(l => l.type === 'pipeline').map(data => ({ kind: 'tool_call' as const, data })),
+    ];
+    return rows.sort((a, b) => a.data.timestamp - b.data.timestamp);
+  }, [messages, logs]);
 
   // Drag-to-resize state
   const [chatWidth, setChatWidth] = useState(60);
@@ -52,11 +68,6 @@ const App: React.FC = () => {
       if (s === 'done') setIsThinking(false);
     });
 
-    const removeInputRequest = api.onInputRequest((payload) => {
-      setIsThinking(false);
-      setPendingInput(payload);
-    });
-
     const removeFolderReviewRequest = api.onFolderReviewRequest((payload) => {
       setIsThinking(false);
       setPendingFolderReview(payload);
@@ -67,6 +78,11 @@ const App: React.FC = () => {
       setPendingScopeSelection(payload);
     });
 
+    const removeExecutionConfirmRequest = api.onExecutionConfirmRequest((payload) => {
+      setIsThinking(false);
+      setPendingExecutionConfirm(payload);
+    });
+
     const removeTodoUpdate = api.onTodoUpdate(({ todoList }) => {
       setTodoList(todoList);
     });
@@ -75,9 +91,9 @@ const App: React.FC = () => {
       removeMessage();
       removeLog();
       removeStage();
-      removeInputRequest();
       removeFolderReviewRequest();
       removeScopeSelectionRequest();
+      removeExecutionConfirmRequest();
       removeTodoUpdate();
     };
   }, []);
@@ -88,25 +104,7 @@ const App: React.FC = () => {
   const handleStart = useCallback((userMessage: string) => {
     setHasStarted(true);
     setIsThinking(true);
-    setMessages([{
-      type: 'user',
-      stage: 'idle',
-      content: userMessage,
-      timestamp: Date.now(),
-    }]);
     window.electronAPI?.startAgent(userMessage);
-  }, []);
-
-  const handleSendMessage = useCallback((text: string) => {
-    setMessages(prev => [...prev, {
-      type: 'user', stage, content: text, timestamp: Date.now()
-    }]);
-  }, [stage]);
-
-  const handleSubmitInput = useCallback((inputId: string, value: string) => {
-    setPendingInput(null);
-    setIsThinking(true);
-    window.electronAPI?.sendInput(inputId, value);
   }, []);
 
   const handleFolderReviewSubmit = useCallback((inputId: string, action: 'approve' | 'message', message?: string) => {
@@ -119,6 +117,12 @@ const App: React.FC = () => {
     setPendingScopeSelection(null);
     setIsThinking(true);
     window.electronAPI?.sendScopeSelection(inputId, action, selected, message);
+  }, []);
+
+  const handleExecutionConfirmSubmit = useCallback((inputId: string, action: 'approve' | 'message', message?: string) => {
+    setPendingExecutionConfirm(null);
+    setIsThinking(true);
+    window.electronAPI?.sendExecutionConfirm(inputId, action, message);
   }, []);
 
   // ==========================================
@@ -176,7 +180,7 @@ const App: React.FC = () => {
               flex items-center gap-1.5 px-2.5 py-1 rounded-md text-xs font-medium
               transition-colors duration-150
               ${logPanelVisible
-                ? 'bg-[#eff6ff] text-[#2563eb] border border-[#bfdbfe]'
+                ? 'bg-[#fdf1ec] text-[#c2613d] border border-[#e8cab8]'
                 : 'text-[#78716c] hover:text-[#1c1917] hover:bg-[#f5f5f4]'
               }
             `}
@@ -207,16 +211,15 @@ const App: React.FC = () => {
           }}
         >
           <ChatPanel
-            messages={messages}
+            timelineRows={timelineRows}
             stage={stage}
             isThinking={isThinking}
-            pendingInput={pendingInput}
             pendingFolderReview={pendingFolderReview}
             pendingScopeSelection={pendingScopeSelection}
-            onSendMessage={handleSendMessage}
-            onSubmitInput={handleSubmitInput}
+            pendingExecutionConfirm={pendingExecutionConfirm}
             onFolderReviewSubmit={handleFolderReviewSubmit}
             onScopeSelectionSubmit={handleScopeSelectionSubmit}
+            onExecutionConfirmSubmit={handleExecutionConfirmSubmit}
             hasStarted={hasStarted}
             onStart={handleStart}
           />

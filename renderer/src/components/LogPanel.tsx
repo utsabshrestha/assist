@@ -82,7 +82,7 @@ export const LogPanel: React.FC<LogPanelProps> = ({ logs, todoList, isVisible })
                 px-3 py-2 text-[11px] font-medium whitespace-nowrap flex items-center gap-1.5
                 border-b-2 transition-colors duration-100
                 ${filter === opt.value
-                  ? 'border-[#2563eb] text-[#2563eb] bg-[#eff6ff]'
+                  ? 'border-[#c2613d] text-[#c2613d] bg-[#fdf1ec]'
                   : 'border-transparent text-[#78716c] hover:text-[#1c1917] hover:bg-[#f5f5f4]'
                 }
               `}

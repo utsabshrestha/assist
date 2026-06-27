@@ -19,7 +19,7 @@ import { documentWorkerAgentSystemPrompt, nonDocumentWorkerAgentSystemPrompt, im
 import { GetCategoriesoffilesofspecificextension, GetCategoriesOfImages, UpdateCategoryNameTool, FinalizeThefolderforthefilesforEachExtensions, workerCompletionStatus, FinalizeThefolderforImages, FinalizeThefolderforNonDocuments, GetCategoriesForNonDocuments, UpdateCategoryNameForNonDocumentsTool, UpdateCategoryNameForImagesTool, PresentDocumentFolderPlanTool, PresentImageFolderPlanTool, PresentNonDocumentFolderPlanTool } from './fileCategorizationTools.js';
 import { ERROR_ENCOUNTERED, ErrorEncountered, HandOffToExecutionAgent } from '../tools/pipelineTools.js';
 import { ManageTodoListTool, MemoryScratchpadTool} from '../tools/planningAgentTools.js';
-import { emitLog, requestUserInput, emitTodoUpdate, emitAgentMessage } from '../electron/ipcBridge.js';
+import { emitLog, emitTodoUpdate, emitAgentMessage } from '../electron/ipcBridge.js';
 
 const DocumentCategorizationAgent = ({
     description: "Spins up an Agent to virtually organize document file extension(s). It organized Documents extensions such as (.pdf, .docx, .doc, .txt, .xlsx, .xls, .csv, .ppt, .pptx, .json, .md).",
@@ -27,12 +27,17 @@ const DocumentCategorizationAgent = ({
         type: "object",
         properties: {
             ProcessId: { type: "string", description: "The unique process id for this session, provided by the user." },
-            TaskId: { type: "number", description: "The Task Id of the todo List"}
+            TaskId: { type: "number", description: "The Task Id of the todo List"},
+            statusMessage: {
+                type: "string",
+                description: "A short, friendly first-person message telling the user what you're about to do, e.g. 'Starting to organize your documents...'. This will be shown directly to the user."
+            }
         },
-        required: ["TaskId", "ProcessId"]
+        required: ["TaskId", "ProcessId", "statusMessage"]
     },
-    async handler(params: {ProcessId: string, TaskId: number}): Promise<string> {
+    async handler(params: {ProcessId: string, TaskId: number, statusMessage: string}): Promise<string> {
         emitLog(`DocumentCategorizationAgent for Task : ${params.TaskId}`, 'tool_call', 'DocumentCategorizationAgent');
+        emitAgentMessage(params.statusMessage);
 
         const state = fileAgentRecord[params.ProcessId];
         if (!state) return "Error: Invalid ProcessId.";
@@ -84,13 +89,19 @@ async function CategorizedDocument(processId : string, extension : string, llmSe
     return new Promise(async (resolve) => {
         try{
             const session = new OpenAISession(llmService, documentWorkerAgentSystemPrompt(extension, state.workspacePath));
-            
+            const MAX_AUTO_CONTINUE = 5;
+            let autoContinueCount = 0;
+
             const runLoop = async () => {
-                const answer = await requestUserInput(`Docs Worker (${extension})`);
-                
+                if (++autoContinueCount > MAX_AUTO_CONTINUE) {
+                    emitLog(`Docs Worker (${extension}) stalled without finalizing — aborting.`, 'error', 'DocWorkerAgent');
+                    resolve(ERROR_ENCOUNTERED);
+                    return;
+                }
+
                 let response = '';
                 try {
-                    response = await session.prompt(answer, { functions: { GetCategoriesoffilesofspecificextension, PresentDocumentFolderPlanTool, UpdateCategoryNameTool, FinalizeThefolderforthefilesforEachExtensions, ErrorEncountered }, forceToolUse: true });
+                    response = await session.prompt('Continue with the next step.', { functions: { GetCategoriesoffilesofspecificextension, PresentDocumentFolderPlanTool, UpdateCategoryNameTool, FinalizeThefolderforthefilesforEachExtensions, ErrorEncountered }, forceToolUse: true });
                     emitLog(response, 'info', 'DocWorkerAgent');
                 } catch (e: any) {
                     emitLog(`Error: ${e.message}`, 'error', 'DocWorkerAgent');
@@ -133,12 +144,17 @@ const NonDocumentCategorizationAgent = ({
         type: "object",
         properties: {
             ProcessId: { type: "string", description: "The unique process id for this session, provided by the user." },
-            TaskId: { type: "number", description: "The Task Id of the todo List"}
+            TaskId: { type: "number", description: "The Task Id of the todo List"},
+            statusMessage: {
+                type: "string",
+                description: "A short, friendly first-person message telling the user what you're about to do, e.g. 'Starting to organize your other files...'. This will be shown directly to the user."
+            }
         },
-        required: ["path", "TaskId", "ProcessId"]
+        required: ["TaskId", "ProcessId", "statusMessage"]
     },
-    async handler(params: {ProcessId: string, TaskId: number}): Promise<string> {
+    async handler(params: {ProcessId: string, TaskId: number, statusMessage: string}): Promise<string> {
         emitLog(`NonDocumentCategorizationAgent for Task ${params.TaskId}`, 'tool_call', 'NonDocumentCategorizationAgent');
+        emitAgentMessage(params.statusMessage);
 
         const state = fileAgentRecord[params.ProcessId];
         if (!state) return "Error: Invalid ProcessId.";
@@ -147,16 +163,19 @@ const NonDocumentCategorizationAgent = ({
 
         return new Promise(async (resolve) => {
             const session = new OpenAISession(llmService, nonDocumentWorkerAgentSystemPrompt(state.workspacePath, params.TaskId));
-            
+            const MAX_AUTO_CONTINUE = 5;
+            let autoContinueCount = 0;
+
             const runLoop = async () => {
-                const answer = await requestUserInput('Non-Document Worker');
-                const trimmed = answer.trim().toLowerCase();
-                if (trimmed === 'done' || trimmed === 'cancel') {
-                    resolve("Non-document organizing Task is complete. Continue with next steps. You can update the status in todo list for this task");
+                if (++autoContinueCount > MAX_AUTO_CONTINUE) {
+                    emitLog('Non-Document Worker stalled without finalizing — aborting.', 'error', 'NonDocWorkerAgent');
+                    resolve('Error encountered while organizing non documents');
                     return;
                 }
+
+                let response = '';
                 try {
-                    const response = await session.prompt(answer, { functions: {GetCategoriesForNonDocuments, PresentNonDocumentFolderPlanTool, FinalizeThefolderforNonDocuments, UpdateCategoryNameForNonDocumentsTool, ErrorEncountered }, forceToolUse: true });
+                    response = await session.prompt('Continue with the next step.', { functions: {GetCategoriesForNonDocuments, PresentNonDocumentFolderPlanTool, FinalizeThefolderforNonDocuments, UpdateCategoryNameForNonDocumentsTool, ErrorEncountered }, forceToolUse: true });
                     emitLog(response, 'info', 'NonDocWorkerAgent');
                 } catch (e: any) {
                     emitLog(`Error: ${e.message}`, 'error', 'NonDocWorkerAgent');
@@ -196,12 +215,17 @@ const ImageCategorizationAgent = ({
         type: "object",
         properties: {
             ProcessId: { type: "string", description: "The unique process id for this session, provided by the user." },
-            TaskId: { type: "number", description: "The Task Id of the todo List"}
+            TaskId: { type: "number", description: "The Task Id of the todo List"},
+            statusMessage: {
+                type: "string",
+                description: "A short, friendly first-person message telling the user what you're about to do, e.g. 'Starting to organize your images...'. This will be shown directly to the user."
+            }
         },
-        required: ["ProcessId", "TaskId"]
+        required: ["ProcessId", "TaskId", "statusMessage"]
     },
-    async handler(params: {ProcessId: string, TaskId: number}): Promise<string> {
+    async handler(params: {ProcessId: string, TaskId: number, statusMessage: string}): Promise<string> {
         emitLog(`ImageCategorizationAgent for Task : ${params.TaskId}`, 'tool_call', 'ImageCategorizationAgent');
+        emitAgentMessage(params.statusMessage);
         const state = fileAgentRecord[params.ProcessId];
         if (!state) return "Error: Invalid ProcessId.";
         const llmService = await LLMService.getInstance();
@@ -212,11 +236,19 @@ const ImageCategorizationAgent = ({
 
         return new Promise(async (resolve) => {
             const session = new OpenAISession(llmService, imageWorkerAgentSystemPrompt(extensions, state.workspacePath, params.TaskId));
-            
+            const MAX_AUTO_CONTINUE = 5;
+            let autoContinueCount = 0;
+
             const runLoop = async () => {
-                const answer = await requestUserInput('Image Worker');
+                if (++autoContinueCount > MAX_AUTO_CONTINUE) {
+                    emitLog('Image Worker stalled without finalizing — aborting.', 'error', 'ImageWorkerAgent');
+                    resolve('Error encountered while organizing images');
+                    return;
+                }
+
+                let response = '';
                 try {
-                    const response = await session.prompt(answer, { functions: { GetCategoriesOfImages, PresentImageFolderPlanTool, UpdateCategoryNameForImagesTool, FinalizeThefolderforImages, ErrorEncountered  }, forceToolUse: true });
+                    response = await session.prompt('Continue with the next step.', { functions: { GetCategoriesOfImages, PresentImageFolderPlanTool, UpdateCategoryNameForImagesTool, FinalizeThefolderforImages, ErrorEncountered  }, forceToolUse: true });
                     emitLog(response, 'info', 'ImageWorkerAgent');
                 } catch (e: any) {
                     emitLog(`Error: ${e.message}`, 'error', 'ImageWorkerAgent');

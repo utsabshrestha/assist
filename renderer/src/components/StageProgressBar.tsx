@@ -34,7 +34,7 @@ export const StageProgressBar: React.FC<StageProgressBarProps> = ({ stage }) => 
                 w-5 h-5 rounded-full border-2 flex items-center justify-center text-[9px] font-bold
                 transition-all duration-300 flex-shrink-0
                 ${isActive
-                  ? 'bg-[#2563eb] border-[#2563eb] text-white'
+                  ? 'bg-[#c2613d] border-[#c2613d] text-white'
                   : isCompleted
                   ? 'bg-[#059669] border-[#059669] text-white'
                   : 'bg-white border-[#d6d3d1] text-[#a8a29e]'
@@ -43,7 +43,7 @@ export const StageProgressBar: React.FC<StageProgressBarProps> = ({ stage }) => 
                 {isCompleted ? '✓' : i + 1}
               </div>
               <span className={`text-xs font-medium ${
-                isActive ? 'text-[#2563eb]' : isCompleted ? 'text-[#059669]' : 'text-[#a8a29e]'
+                isActive ? 'text-[#c2613d]' : isCompleted ? 'text-[#059669]' : 'text-[#a8a29e]'
               }`}>
                 {s.label}
               </span>

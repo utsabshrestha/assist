@@ -1,36 +1,36 @@
 import React, { useEffect, useRef, useState, useCallback } from 'react';
-import type { AgentMessage, AgentStage, FolderReviewRequest, ScopeSelectionRequest, CategorySummary } from '../types/electron.js';
-import { MessageBubble, TypingIndicator } from './MessageBubble.js';
+import type { AgentStage, FolderReviewRequest, ScopeSelectionRequest, ExecutionConfirmRequest, CategorySummary } from '../types/electron.js';
+import type { TimelineRow } from '../App.js';
+import { TimelineEntry } from './TimelineEntry.js';
 import { StageProgressBar } from './StageProgressBar.js';
 import { FolderReviewPanel } from './FolderReviewPanel.js';
 import { ScopeSelectionPanel } from './ScopeSelectionPanel.js';
+import { ExecutionConfirmPanel } from './ExecutionConfirmPanel.js';
 
 interface ChatPanelProps {
-  messages: AgentMessage[];
+  timelineRows: TimelineRow[];
   stage: AgentStage;
   isThinking: boolean;
-  pendingInput: { promptLabel: string; inputId: string } | null;
   pendingFolderReview: FolderReviewRequest | null;
   pendingScopeSelection: ScopeSelectionRequest | null;
-  onSendMessage: (text: string) => void;
-  onSubmitInput: (inputId: string, value: string) => void;
+  pendingExecutionConfirm: ExecutionConfirmRequest | null;
   onFolderReviewSubmit: (inputId: string, action: 'approve' | 'message', message?: string) => void;
   onScopeSelectionSubmit: (inputId: string, action: 'submit' | 'message', selected?: CategorySummary, message?: string) => void;
+  onExecutionConfirmSubmit: (inputId: string, action: 'approve' | 'message', message?: string) => void;
   hasStarted: boolean;
   onStart: (msg: string) => void;
 }
 
 export const ChatPanel: React.FC<ChatPanelProps> = ({
-  messages,
+  timelineRows,
   stage,
   isThinking,
-  pendingInput,
   pendingFolderReview,
   pendingScopeSelection,
-  onSendMessage,
-  onSubmitInput,
+  pendingExecutionConfirm,
   onFolderReviewSubmit,
   onScopeSelectionSubmit,
+  onExecutionConfirmSubmit,
   hasStarted,
   onStart,
 }) => {
@@ -42,24 +42,7 @@ export const ChatPanel: React.FC<ChatPanelProps> = ({
 
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: 'smooth' });
-  }, [messages, isThinking]);
-
-  useEffect(() => {
-    if (pendingInput || !hasStarted) {
-      setTimeout(() => inputRef.current?.focus(), 100);
-    }
-  }, [pendingInput, hasStarted]);
-
-  const inputDisabled = isThinking || (hasStarted && pendingInput === null && pendingFolderReview === null && pendingScopeSelection === null);
-
-  const getPlaceholder = () => {
-    if (!hasStarted) return 'Describe what you want to organize (optional)…';
-    if (isThinking) return 'Agent is working…';
-    if (pendingFolderReview) return 'Use the folder review panel above to respond…';
-    if (pendingScopeSelection) return 'Use the checklist above to respond…';
-    if (pendingInput) return `${pendingInput.promptLabel} — type your response…`;
-    return 'Waiting for agent…';
-  };
+  }, [timelineRows, isThinking]);
 
   // Native folder picker
   const handleSelectFolder = useCallback(async () => {
@@ -82,23 +65,15 @@ export const ChatPanel: React.FC<ChatPanelProps> = ({
     setInputValue('');
   }, [selectedFolder, inputValue, onStart]);
 
-  const handleSubmitInput = useCallback(() => {
-    const trimmed = inputValue.trim();
-    if (!trimmed || inputDisabled) return;
-
-    if (pendingInput) {
-      onSubmitInput(pendingInput.inputId, trimmed);
-    }
-    setInputValue('');
-  }, [inputValue, inputDisabled, pendingInput, onSubmitInput]);
-
   const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
     if (e.key === 'Enter' && !e.shiftKey) {
       e.preventDefault();
-      if (!hasStarted) handleStart();
-      else handleSubmitInput();
+      handleStart();
     }
   };
+
+  const pendingPanel = pendingFolderReview || pendingScopeSelection || pendingExecutionConfirm;
+  const latestIndex = timelineRows.length - 1;
 
   return (
     <div className="flex flex-col h-full bg-white overflow-hidden">
@@ -110,8 +85,8 @@ export const ChatPanel: React.FC<ChatPanelProps> = ({
         </div>
       )}
 
-      {/* Messages area */}
-      <div className="flex-1 overflow-y-auto px-6 py-6 space-y-5">
+      {/* Timeline / welcome area */}
+      <div className="flex-1 overflow-y-auto px-6 py-6">
 
         {/* Welcome screen */}
         {!hasStarted && (
@@ -185,85 +160,46 @@ export const ChatPanel: React.FC<ChatPanelProps> = ({
           </div>
         )}
 
-        {/* Messages */}
-        {messages.map((msg, i) => (
-          <MessageBubble key={msg.groupId ?? `${msg.timestamp}-${i}`} message={msg} />
-        ))}
+        {/* Activity timeline */}
+        {hasStarted && (
+          <div>
+            {timelineRows.map((row, i) => (
+              <TimelineEntry
+                key={row.kind === 'message' ? (row.data.groupId ?? `${row.data.timestamp}-${i}`) : `${row.data.timestamp}-${i}`}
+                kind={row.kind}
+                data={row.data}
+                isLatest={i === latestIndex}
+                connectorActive={i === latestIndex && (isThinking || !pendingPanel)}
+                showConnector={i < timelineRows.length - 1 || isThinking || !!pendingPanel}
+              />
+            ))}
 
-        {/* Folder review panel — rendered inline after messages */}
-        {pendingFolderReview && !isThinking && (
-          <FolderReviewPanel
-            request={pendingFolderReview}
-            onSubmit={onFolderReviewSubmit}
-          />
-        )}
+            {/* Structured panels — distinct "waiting on you" cards breaking the timeline's flow */}
+            {pendingFolderReview && !isThinking && (
+              <FolderReviewPanel
+                request={pendingFolderReview}
+                onSubmit={onFolderReviewSubmit}
+              />
+            )}
 
-        {/* Scope selection panel — rendered inline after messages */}
-        {pendingScopeSelection && !isThinking && (
-          <ScopeSelectionPanel
-            request={pendingScopeSelection}
-            onSubmit={onScopeSelectionSubmit}
-          />
-        )}
+            {pendingScopeSelection && !isThinking && (
+              <ScopeSelectionPanel
+                request={pendingScopeSelection}
+                onSubmit={onScopeSelectionSubmit}
+              />
+            )}
 
-        {isThinking && <TypingIndicator />}
-
-        {/* Waiting-for-input hint */}
-        {pendingInput && !isThinking && (
-          <div className="flex items-center gap-2 px-3 py-2 bg-[#eff6ff] border border-[#bfdbfe] rounded-lg text-xs text-[#2563eb]">
-            <div className="w-1.5 h-1.5 rounded-full bg-[#2563eb] animate-pulse flex-shrink-0" />
-            Agent is waiting for your input
+            {pendingExecutionConfirm && !isThinking && (
+              <ExecutionConfirmPanel
+                request={pendingExecutionConfirm}
+                onSubmit={onExecutionConfirmSubmit}
+              />
+            )}
           </div>
         )}
 
         <div ref={bottomRef} />
       </div>
-
-      {/* Input area (only when session started) */}
-      {hasStarted && (
-        <div className="flex-shrink-0 border-t border-[#e7e5e4] bg-[#fafafa] px-5 py-3.5">
-          {pendingInput && !isThinking && (
-            <div className="mb-2">
-              <span className="text-[10px] font-semibold text-[#2563eb] uppercase tracking-wider">
-                {pendingInput.promptLabel}
-              </span>
-            </div>
-          )}
-          <div className="flex gap-2 items-end">
-            <textarea
-              ref={inputRef}
-              id="chat-input"
-              value={inputValue}
-              onChange={e => setInputValue(e.target.value)}
-              onKeyDown={handleKeyDown}
-              disabled={inputDisabled}
-              placeholder={getPlaceholder()}
-              rows={1}
-              className="input-field flex-1 px-3.5 py-2.5 text-sm resize-none min-h-[40px] max-h-[100px] overflow-y-auto selectable"
-              onInput={(e) => {
-                const el = e.currentTarget;
-                el.style.height = 'auto';
-                el.style.height = Math.min(el.scrollHeight, 100) + 'px';
-              }}
-            />
-            <button
-              id="send-button"
-              onClick={handleSubmitInput}
-              disabled={!inputValue.trim() || inputDisabled}
-              className="send-btn px-3.5 py-2.5 text-sm font-medium flex-shrink-0 h-[40px] flex items-center gap-1.5"
-            >
-              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
-                <line x1="22" y1="2" x2="11" y2="13"/>
-                <polygon points="22 2 15 22 11 13 2 9 22 2"/>
-              </svg>
-              Send
-            </button>
-          </div>
-          <p className="mt-1.5 text-[10px] text-[#a8a29e]">
-            Enter to send · Shift+Enter for new line
-          </p>
-        </div>
-      )}
     </div>
   );
 };

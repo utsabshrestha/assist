@@ -1,4 +1,5 @@
 import React, { useState, useCallback, useRef, useEffect } from 'react';
+import { FolderTree, ChevronRight, Check } from 'lucide-react';
 import type { FolderReviewRequest } from '../types/electron.js';
 
 interface FolderReviewPanelProps {
@@ -10,6 +11,8 @@ export const FolderReviewPanel: React.FC<FolderReviewPanelProps> = ({ request, o
   const [message, setMessage] = useState('');
   const [mode, setMode] = useState<'idle' | 'changes'>('idle');
   const [submitted, setSubmitted] = useState(false);
+  const [submittedMessage, setSubmittedMessage] = useState<string | null>(null);
+  const [resultCollapsed, setResultCollapsed] = useState(true);
   const inputRef = useRef<HTMLTextAreaElement>(null);
 
   useEffect(() => {
@@ -27,6 +30,7 @@ export const FolderReviewPanel: React.FC<FolderReviewPanelProps> = ({ request, o
     const trimmed = message.trim();
     if (!trimmed) return;
     setSubmitted(true);
+    setSubmittedMessage(trimmed);
     onSubmit(request.inputId, 'message', trimmed);
   }, [request.inputId, message, onSubmit]);
 
@@ -45,13 +49,13 @@ export const FolderReviewPanel: React.FC<FolderReviewPanelProps> = ({ request, o
     <div
       className="folder-review-panel"
       style={{
-        background: 'linear-gradient(135deg, #f0f9ff 0%, #e0f2fe 100%)',
-        border: '1px solid #bae6fd',
+        background: 'linear-gradient(135deg, #fdf1ec 0%, #f9f1ea 100%)',
+        border: '1px solid #e8cab8',
         borderRadius: '12px',
         padding: '16px',
         marginTop: '4px',
         maxWidth: '100%',
-        boxShadow: '0 1px 4px rgba(14, 165, 233, 0.08)',
+        boxShadow: '0 1px 4px rgba(194, 97, 61, 0.08)',
       }}
     >
       {/* Header */}
@@ -59,102 +63,102 @@ export const FolderReviewPanel: React.FC<FolderReviewPanelProps> = ({ request, o
         <div
           style={{
             width: 32, height: 32, borderRadius: 8,
-            background: 'linear-gradient(135deg, #0ea5e9, #6366f1)',
+            background: 'linear-gradient(135deg, #c2613d, #a8502f)',
             display: 'flex', alignItems: 'center', justifyContent: 'center',
             flexShrink: 0,
           }}
         >
-          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-            <path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/>
-          </svg>
+          <FolderTree size={16} color="white" strokeWidth={2} />
         </div>
 
         <div>
           <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-            <span style={{ fontSize: 13, fontWeight: 600, color: '#0c4a6e' }}>
+            <span style={{ fontSize: 13, fontWeight: 600, color: '#57341f' }}>
               Proposed Folder Structure
             </span>
             <span
               style={{
                 fontSize: 10, fontWeight: 700, letterSpacing: '0.05em',
                 padding: '2px 7px', borderRadius: 99,
-                background: 'linear-gradient(135deg, #0ea5e9, #6366f1)',
+                background: 'linear-gradient(135deg, #c2613d, #a8502f)',
                 color: 'white',
               }}
             >
               .{extLabel}
             </span>
           </div>
-          <p style={{ fontSize: 12, color: '#0369a1', margin: '2px 0 0' }}>
+          <p style={{ fontSize: 12, color: '#8a5a3d', margin: '2px 0 0' }}>
             Review the categories below before finalizing.
           </p>
         </div>
       </div>
 
-      {/* Folder table */}
-      <div
-        style={{
-          background: 'rgba(255,255,255,0.7)',
-          borderRadius: 8,
-          overflow: 'hidden',
-          border: '1px solid #e0f2fe',
-          marginBottom: 14,
-        }}
-      >
+      {/* Folder table — stays visible pre-submit, and re-expandable after */}
+      {(!submitted || !resultCollapsed) && (
         <div
           style={{
-            display: 'grid', gridTemplateColumns: '160px 1fr',
-            padding: '6px 12px',
-            background: '#e0f2fe',
-            borderBottom: '1px solid #bae6fd',
+            background: 'rgba(255,255,255,0.7)',
+            borderRadius: 8,
+            overflow: 'hidden',
+            border: '1px solid #f3ddcd',
+            marginBottom: 14,
           }}
         >
-          <span style={{ fontSize: 10, fontWeight: 700, color: '#0369a1', letterSpacing: '0.06em', textTransform: 'uppercase' }}>
-            Category
-          </span>
-          <span style={{ fontSize: 10, fontWeight: 700, color: '#0369a1', letterSpacing: '0.06em', textTransform: 'uppercase' }}>
-            Folder Path
-          </span>
-        </div>
-
-        {request.folders.map((entry, i) => (
           <div
-            key={`${entry.category}-${i}`}
             style={{
               display: 'grid', gridTemplateColumns: '160px 1fr',
-              padding: '8px 12px',
-              borderBottom: i < request.folders.length - 1 ? '1px solid #e0f2fe' : 'none',
-              alignItems: 'center',
+              padding: '6px 12px',
+              background: '#f3ddcd',
+              borderBottom: '1px solid #e8cab8',
             }}
           >
-            <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-              <span
-                style={{
-                  display: 'inline-block',
-                  width: 7, height: 7, borderRadius: '50%',
-                  background: 'linear-gradient(135deg, #0ea5e9, #6366f1)',
-                  flexShrink: 0,
-                }}
-              />
-              <span style={{ fontSize: 12, fontWeight: 600, color: '#0c4a6e', wordBreak: 'break-word' }}>
-                {entry.category}
-              </span>
-            </div>
-
-            <span
-              title={entry.folder}
-              style={{
-                fontSize: 11, color: '#475569',
-                fontFamily: 'ui-monospace, SFMono-Regular, Menlo, monospace',
-                overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
-                paddingLeft: 8,
-              }}
-            >
-              {entry.folder}
+            <span style={{ fontSize: 10, fontWeight: 700, color: '#8a5a3d', letterSpacing: '0.06em', textTransform: 'uppercase' }}>
+              Category
+            </span>
+            <span style={{ fontSize: 10, fontWeight: 700, color: '#8a5a3d', letterSpacing: '0.06em', textTransform: 'uppercase' }}>
+              Folder Path
             </span>
           </div>
-        ))}
-      </div>
+
+          {request.folders.map((entry, i) => (
+            <div
+              key={`${entry.category}-${i}`}
+              style={{
+                display: 'grid', gridTemplateColumns: '160px 1fr',
+                padding: '8px 12px',
+                borderBottom: i < request.folders.length - 1 ? '1px solid #f3ddcd' : 'none',
+                alignItems: 'center',
+              }}
+            >
+              <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                <span
+                  style={{
+                    display: 'inline-block',
+                    width: 7, height: 7, borderRadius: '50%',
+                    background: 'linear-gradient(135deg, #c2613d, #a8502f)',
+                    flexShrink: 0,
+                  }}
+                />
+                <span style={{ fontSize: 12, fontWeight: 600, color: '#57341f', wordBreak: 'break-word' }}>
+                  {entry.category}
+                </span>
+              </div>
+
+              <span
+                title={entry.folder}
+                style={{
+                  fontSize: 11, color: '#8a5a3d',
+                  fontFamily: 'ui-monospace, SFMono-Regular, Menlo, monospace',
+                  overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
+                  paddingLeft: 8,
+                }}
+              >
+                {entry.folder}
+              </span>
+            </div>
+          ))}
+        </div>
+      )}
 
       {/* Actions */}
       {!submitted && (
@@ -167,17 +171,15 @@ export const FolderReviewPanel: React.FC<FolderReviewPanelProps> = ({ request, o
                 style={{
                   display: 'flex', alignItems: 'center', gap: 6,
                   padding: '8px 18px', borderRadius: 8, border: 'none', cursor: 'pointer',
-                  background: 'linear-gradient(135deg, #0ea5e9, #6366f1)',
+                  background: 'var(--color-accent)',
                   color: 'white', fontSize: 13, fontWeight: 600,
-                  boxShadow: '0 2px 8px rgba(14,165,233,0.3)',
+                  boxShadow: '0 2px 8px rgba(194,97,61,0.3)',
                   transition: 'opacity 0.15s',
                 }}
                 onMouseEnter={e => (e.currentTarget.style.opacity = '0.88')}
                 onMouseLeave={e => (e.currentTarget.style.opacity = '1')}
               >
-                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
-                  <polyline points="20 6 9 17 4 12"/>
-                </svg>
+                <Check size={14} strokeWidth={2.5} />
                 Approve
               </button>
 
@@ -187,11 +189,11 @@ export const FolderReviewPanel: React.FC<FolderReviewPanelProps> = ({ request, o
                 style={{
                   display: 'flex', alignItems: 'center', gap: 6,
                   padding: '8px 16px', borderRadius: 8, cursor: 'pointer',
-                  background: 'white', color: '#0369a1',
-                  border: '1px solid #bae6fd', fontSize: 13, fontWeight: 500,
+                  background: 'white', color: '#8a5a3d',
+                  border: '1px solid #e8cab8', fontSize: 13, fontWeight: 500,
                   transition: 'background 0.15s',
                 }}
-                onMouseEnter={e => (e.currentTarget.style.background = '#f0f9ff')}
+                onMouseEnter={e => (e.currentTarget.style.background = '#fdf1ec')}
                 onMouseLeave={e => (e.currentTarget.style.background = 'white')}
               >
                 <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
@@ -205,7 +207,7 @@ export const FolderReviewPanel: React.FC<FolderReviewPanelProps> = ({ request, o
 
           {mode === 'changes' && (
             <div>
-              <p style={{ fontSize: 12, color: '#0369a1', marginBottom: 8, fontWeight: 500 }}>
+              <p style={{ fontSize: 12, color: '#8a5a3d', marginBottom: 8, fontWeight: 500 }}>
                 Describe what you'd like to change (e.g. "merge invoices and billing", "rename contracts to legal"):
               </p>
               <div style={{ display: 'flex', gap: 8, alignItems: 'flex-end' }}>
@@ -219,12 +221,12 @@ export const FolderReviewPanel: React.FC<FolderReviewPanelProps> = ({ request, o
                   placeholder="e.g. merge invoices and billing into one folder…"
                   style={{
                     flex: 1, padding: '8px 12px', borderRadius: 8, resize: 'none',
-                    border: '1px solid #bae6fd', fontSize: 13, color: '#0c4a6e',
+                    border: '1px solid #e8cab8', fontSize: 13, color: '#57341f',
                     background: 'white', outline: 'none', fontFamily: 'inherit',
-                    boxShadow: 'inset 0 1px 3px rgba(14,165,233,0.08)',
+                    boxShadow: 'inset 0 1px 3px rgba(194,97,61,0.08)',
                   }}
-                  onFocus={e => (e.currentTarget.style.borderColor = '#0ea5e9')}
-                  onBlur={e => (e.currentTarget.style.borderColor = '#bae6fd')}
+                  onFocus={e => (e.currentTarget.style.borderColor = '#c2613d')}
+                  onBlur={e => (e.currentTarget.style.borderColor = '#e8cab8')}
                 />
                 <button
                   id={`send-changes-btn-${request.inputId}`}
@@ -233,8 +235,8 @@ export const FolderReviewPanel: React.FC<FolderReviewPanelProps> = ({ request, o
                   style={{
                     padding: '8px 16px', borderRadius: 8, border: 'none',
                     cursor: message.trim() ? 'pointer' : 'not-allowed',
-                    background: message.trim() ? 'linear-gradient(135deg, #0ea5e9, #6366f1)' : '#e0f2fe',
-                    color: message.trim() ? 'white' : '#94a3b8',
+                    background: message.trim() ? 'var(--color-accent)' : '#f3ddcd',
+                    color: message.trim() ? 'white' : '#b89178',
                     fontSize: 13, fontWeight: 600, flexShrink: 0, height: 38,
                     transition: 'all 0.15s',
                   }}
@@ -246,7 +248,7 @@ export const FolderReviewPanel: React.FC<FolderReviewPanelProps> = ({ request, o
                 onClick={() => { setMode('idle'); setMessage(''); }}
                 style={{
                   marginTop: 6, background: 'none', border: 'none',
-                  color: '#94a3b8', fontSize: 11, cursor: 'pointer', padding: 0,
+                  color: '#b89178', fontSize: 11, cursor: 'pointer', padding: 0,
                 }}
               >
                 ← Back
@@ -257,23 +259,28 @@ export const FolderReviewPanel: React.FC<FolderReviewPanelProps> = ({ request, o
       )}
 
       {submitted && (
-        <div
+        <button
+          onClick={() => setResultCollapsed(c => !c)}
           style={{
-            display: 'flex', alignItems: 'center', gap: 8,
-            padding: '8px 12px', borderRadius: 8,
-            background: 'rgba(255,255,255,0.6)', border: '1px solid #bae6fd',
-            fontSize: 12, color: '#0369a1',
+            display: 'flex', alignItems: 'center', gap: 8, width: '100%', textAlign: 'left',
+            padding: '8px 12px', borderRadius: 8, border: '1px solid #e8cab8',
+            background: 'rgba(255,255,255,0.6)', cursor: 'pointer',
+            fontSize: 12, color: '#8a5a3d',
           }}
         >
-          <div
-            style={{
-              width: 8, height: 8, borderRadius: '50%',
-              background: 'linear-gradient(135deg, #0ea5e9, #6366f1)',
-              flexShrink: 0,
-            }}
+          <ChevronRight
+            size={12}
+            strokeWidth={2.5}
+            style={{ flexShrink: 0, transition: 'transform 0.15s', transform: resultCollapsed ? 'none' : 'rotate(90deg)' }}
           />
-          Response sent — waiting for agent…
-        </div>
+          <Check size={13} strokeWidth={2.5} color="#15803d" style={{ flexShrink: 0 }} />
+          <span style={{ fontWeight: 500, color: '#57341f' }}>
+            {submittedMessage ? 'Sent a message' : 'Approved'}
+          </span>
+          <span>
+            {submittedMessage ? `— "${submittedMessage}"` : `— ${request.folders.length} folder(s)`}
+          </span>
+        </button>
       )}
     </div>
   );

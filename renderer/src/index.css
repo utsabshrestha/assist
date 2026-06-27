@@ -5,16 +5,16 @@
    ============================================ */
 @theme {
   /* Colors */
-  --color-bg-base: #fafafa;
+  --color-bg-base: #f9f9f7;
   --color-bg-surface: #ffffff;
   --color-bg-panel: #f5f5f4;
   --color-bg-hover: #f0efed;
   --color-border: #e7e5e4;
   --color-border-strong: #d6d3d1;
 
-  --color-accent: #2563eb;
-  --color-accent-hover: #1d4ed8;
-  --color-accent-light: #eff6ff;
+  --color-accent: #c2613d;
+  --color-accent-hover: #a8502f;
+  --color-accent-light: #fdf1ec;
 
   --color-text-primary: #1c1917;
   --color-text-secondary: #57534e;
@@ -25,7 +25,7 @@
   --color-planning: #d97706;
   --color-categorization: #7c3aed;
   --color-execution: #059669;
-  --color-done: #0284c7;
+  --color-done: #c2613d;
   --color-idle: #78716c;
 
   /* Log colors — muted */
@@ -86,6 +86,25 @@ html, body, #root {
 .typing-dot:nth-child(2) { animation-delay: 0.2s; }
 .typing-dot:nth-child(3) { animation-delay: 0.4s; }
 
+/* Timeline connector — flowing gradient sweep to signal the agent is actively working,
+   even during long silent stretches between narration rows (e.g. mid-clustering). */
+@keyframes timelineFlow {
+  0%   { background-position: 0 -100%; }
+  100% { background-position: 0 200%; }
+}
+
+.timeline-connector-active {
+  background-image: linear-gradient(
+    to bottom,
+    transparent 0%,
+    var(--color-accent, #c2613d) 45%,
+    var(--color-accent, #c2613d) 55%,
+    transparent 100%
+  );
+  background-size: 100% 50%;
+  animation: timelineFlow 1.1s linear infinite;
+}
+
 /* ============================================
    MESSAGE BUBBLES — Classic style
    ============================================ */
@@ -121,7 +140,7 @@ html, body, #root {
 
 .input-field:focus {
   border-color: var(--color-accent);
-  box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.08);
+  box-shadow: 0 0 0 3px rgba(194, 97, 61, 0.10);
 }
 
 .input-field::placeholder { color: var(--color-text-placeholder); }

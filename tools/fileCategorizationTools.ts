@@ -6,7 +6,7 @@ import { FileClassificationTool } from './fileClassificationTool.js';
 import { ImageClassificationTool } from './imageClassificationTool.js';
 import { stat } from 'fs';
 import { Items } from 'openai/resources/conversations.mjs';
-import { requestUserInput, requestFolderReview, emitTodoUpdate } from '../electron/ipcBridge.js';
+import { requestFolderReview, emitTodoUpdate, emitAgentMessage } from '../electron/ipcBridge.js';
 
 export const workerCompletionStatus: Record<string, boolean> = {};
 
@@ -47,12 +47,17 @@ export const GetCategoriesOfImages = ({
                 type: "array",
                 items: { type: "string" },
                 description: "Array of image extensions to categorize together (e.g. ['.jpg', '.png', '.jpeg'])."
+            },
+            statusMessage: {
+                type: "string",
+                description: "A short, friendly first-person message telling the user what you're about to do, e.g. 'Analyzing your images...'. This will be shown directly to the user."
             }
         },
-        required: [ "ProcessId", "TaskId", "extensions"]
+        required: [ "ProcessId", "TaskId", "extensions", "statusMessage"]
     },
-    async handler(params: {ProcessId: string, TaskId: number, extensions: string[]}): Promise<string> {
+    async handler(params: {ProcessId: string, TaskId: number, extensions: string[], statusMessage: string}): Promise<string> {
         console.log(`\x1b[95m[Worker Tool]\x1b[0m GetCategoriesOfImages → ${params.ProcessId} for ${params.extensions.join(', ')}`);
+        emitAgentMessage(params.statusMessage);
         try {
             const state = fileAgentRecord[params.ProcessId];
             if (!state) return "Error: Invalid ProcessId.";
@@ -128,12 +133,17 @@ export const GetCategoriesoffilesofspecificextension = ({
             extension:{
                 type: "string",
                 description: "The file extension which you want to get categorical summary of. eg: `.pdf`"
+            },
+            statusMessage: {
+                type: "string",
+                description: "A short, friendly first-person message telling the user what you're about to do, e.g. 'Analyzing your PDF files...'. This will be shown directly to the user."
             }
         },
-        required: ["extension", "ProcessId"]
+        required: ["extension", "ProcessId", "statusMessage"]
     },
-    async handler(params: {ProcessId: string, extension: string}): Promise<string> {
+    async handler(params: {ProcessId: string, extension: string, statusMessage: string}): Promise<string> {
         console.log(`\x1b[95m[Worker Tool]\x1b[0m GetCategoricalSummaryOfFiles → ${params.ProcessId}`);
+        emitAgentMessage(params.statusMessage);
         try {
             const state = fileAgentRecord[params.ProcessId];
             if (!state) return "Error: Invalid ProcessId.";
@@ -196,15 +206,20 @@ export const UpdateCategoryNameTool = ({
             ProcessId: { type: "string" },
             extension: { type: "string" },
             oldCategoryName: { type: "string", description: "The existing category name to be changed." },
-            newCategoryName: { type: "string", description: "The new category name requested by the user." }
+            newCategoryName: { type: "string", description: "The new category name requested by the user." },
+            statusMessage: {
+                type: "string",
+                description: "A short, friendly first-person message telling the user what you're about to do, e.g. 'Renaming that category for you...'. This will be shown directly to the user."
+            }
         },
-        required: ["ProcessId", "extension", "oldCategoryName", "newCategoryName"]
+        required: ["ProcessId", "extension", "oldCategoryName", "newCategoryName", "statusMessage"]
     },
-    async handler(params: {ProcessId: string, extension: string, oldCategoryName: string, newCategoryName: string}): Promise<string> {
+    async handler(params: {ProcessId: string, extension: string, oldCategoryName: string, newCategoryName: string, statusMessage: string}): Promise<string> {
         console.log(`\x1b[95m[Worker Tool]\x1b[0m UpdateCategoryNameTool -> '${params.oldCategoryName}' to '${params.newCategoryName}'`);
+        emitAgentMessage(params.statusMessage);
         const state = fileAgentRecord[params.ProcessId];
         if (!state) return "Error: Invalid ProcessId.";
-        
+
         if (!state.fileByExtension[params.extension]) {
             return `Error: No files found for extension ${params.extension}`;
         }
@@ -255,12 +270,17 @@ export const FinalizeThefolderforthefilesforEachExtensions = ({
             extension: {
                 type: "string",
                 description: "The file extension being finalized, eg .pdf, .docx, .txt"
+            },
+            statusMessage: {
+                type: "string",
+                description: "A short, friendly first-person message telling the user what you're about to do, e.g. 'Finalizing folders for your PDF files...'. This will be shown directly to the user."
             }
         },
-        required: ["extension", "ProcessId"]
+        required: ["extension", "ProcessId", "statusMessage"]
     },
-    async handler(params: {ProcessId: string, extension: string}): Promise<string> {
+    async handler(params: {ProcessId: string, extension: string, statusMessage: string}): Promise<string> {
         console.log(`\x1b[95m[Worker Tool]\x1b[0m FinalizeThefolderforthefilesforEachExtensions → ${params.ProcessId}`);
+        emitAgentMessage(params.statusMessage);
         const state = fileAgentRecord[params.ProcessId];
         if (!state) return "Error: Invalid ProcessId.";
 
@@ -321,12 +341,17 @@ export const FinalizeThefolderforImages = ({
             TaskId: {
                 type: "number",
                 description: "The Task Id of the todo list item being organized."
+            },
+            statusMessage: {
+                type: "string",
+                description: "A short, friendly first-person message telling the user what you're about to do, e.g. 'Finalizing folders for your images...'. This will be shown directly to the user."
             }
         },
-        required: ["ProcessId", "TaskId"]
+        required: ["ProcessId", "TaskId", "statusMessage"]
     },
-    async handler(params: {ProcessId: string, TaskId: number}): Promise<string> {
+    async handler(params: {ProcessId: string, TaskId: number, statusMessage: string}): Promise<string> {
         console.log(`\x1b[95m[Worker Tool]\x1b[0m FinalizeThefolderforImages → ${params.ProcessId}`);
+        emitAgentMessage(params.statusMessage);
         const state = fileAgentRecord[params.ProcessId];
         if (!state) return "Error: Invalid ProcessId.";
 
@@ -388,12 +413,17 @@ export const FinalizeThefolderforNonDocuments = ({
             TaskId: {
                 type: "number",
                 description: "Task id of this task."
+            },
+            statusMessage: {
+                type: "string",
+                description: "A short, friendly first-person message telling the user what you're about to do, e.g. 'Finalizing those folders...'. This will be shown directly to the user."
             }
         },
-        required: ["ProcessId", "TaskId"]
+        required: ["ProcessId", "TaskId", "statusMessage"]
     },
-    async handler(params: {ProcessId: string, TaskId: number}): Promise<string> {
+    async handler(params: {ProcessId: string, TaskId: number, statusMessage: string}): Promise<string> {
         console.log(`\x1b[95m[Worker Tool]\x1b[0m FinalizeThefolderforNonDocuments → ${params.ProcessId}`);
+        emitAgentMessage(params.statusMessage);
         const state = fileAgentRecord[params.ProcessId];
         if (!state) return "Error: Invalid ProcessId.";
 
@@ -457,12 +487,17 @@ export const GetCategoriesForNonDocuments = {
             TaskId: {
                 type: "number",
                 description: "Task id of this task."
+            },
+            statusMessage: {
+                type: "string",
+                description: "A short, friendly first-person message telling the user what you're about to do, e.g. 'Sorting your other files into categories...'. This will be shown directly to the user."
             }
         },
-        required: ["ProcessId", "TaskId"]
+        required: ["ProcessId", "TaskId", "statusMessage"]
     },
-    async handler(params: { ProcessId: string; TaskId: number }): Promise<string> {
+    async handler(params: { ProcessId: string; TaskId: number; statusMessage: string }): Promise<string> {
         console.log(`\x1b[95m[Worker Tool]\x1b[0m GetCategoriesForNonDocuments → ${params.ProcessId} for Task Id : ${params.TaskId}`);
+        emitAgentMessage(params.statusMessage);
         try {
             const state = fileAgentRecord[params.ProcessId];
             if (!state) return "Error: Invalid ProcessId.";
@@ -508,15 +543,20 @@ export const UpdateCategoryNameForNonDocumentsTool = ({
             ProcessId: { type: "string" },
             TaskId: { type: "number", description: "Task id of the task you are working on" },
             oldCategoryName: { type: "string", description: "The existing category name to be changed." },
-            newCategoryName: { type: "string", description: "The new category name requested by the user." }
+            newCategoryName: { type: "string", description: "The new category name requested by the user." },
+            statusMessage: {
+                type: "string",
+                description: "A short, friendly first-person message telling the user what you're about to do, e.g. 'Renaming that category for you...'. This will be shown directly to the user."
+            }
         },
-        required: ["ProcessId", "TaskId", "oldCategoryName", "newCategoryName"]
+        required: ["ProcessId", "TaskId", "oldCategoryName", "newCategoryName", "statusMessage"]
     },
-    async handler(params: {ProcessId: string, TaskId: number, oldCategoryName: string, newCategoryName: string}): Promise<string> {
+    async handler(params: {ProcessId: string, TaskId: number, oldCategoryName: string, newCategoryName: string, statusMessage: string}): Promise<string> {
         console.log(`\x1b[95m[Worker Tool]\x1b[0m UpdateCategoryNameTool -> '${params.oldCategoryName}' to '${params.newCategoryName}'`);
+        emitAgentMessage(params.statusMessage);
         const state = fileAgentRecord[params.ProcessId];
         if (!state) return "Error: Invalid ProcessId.";
-        
+
         const extensionsList = state.todoList.filter(task => task.id == params.TaskId).flatMap(todo => todo.extensionList);
 
         const filesWithOldCategory = state.fileListData.filter(file => file.category == params.oldCategoryName);
@@ -566,12 +606,17 @@ export const UpdateCategoryNameForImagesTool = ({
             ProcessId: { type: "string" },
             TaskId: { type: "number", description: "Task id of the task you are working on" },
             oldCategoryName: { type: "string", description: "The existing category name to be changed." },
-            newCategoryName: { type: "string", description: "The new category name requested by the user." }
+            newCategoryName: { type: "string", description: "The new category name requested by the user." },
+            statusMessage: {
+                type: "string",
+                description: "A short, friendly first-person message telling the user what you're about to do, e.g. 'Renaming that image category for you...'. This will be shown directly to the user."
+            }
         },
-        required: ["ProcessId", "TaskId", "oldCategoryName", "newCategoryName"]
+        required: ["ProcessId", "TaskId", "oldCategoryName", "newCategoryName", "statusMessage"]
     },
-    async handler(params: {ProcessId: string, TaskId: number, oldCategoryName: string, newCategoryName: string}): Promise<string> {
+    async handler(params: {ProcessId: string, TaskId: number, oldCategoryName: string, newCategoryName: string, statusMessage: string}): Promise<string> {
         console.log(`\x1b[95m[Worker Tool]\x1b[0m UpdateCategoryNameForImagesTool -> '${params.oldCategoryName}' to '${params.newCategoryName}'`);
+        emitAgentMessage(params.statusMessage);
         const state = fileAgentRecord[params.ProcessId];
         if (!state) return "Error: Invalid ProcessId.";
 
@@ -627,12 +672,17 @@ export const PresentDocumentFolderPlanTool = ({
         type: "object",
         properties: {
             ProcessId: { type: "string", description: "The unique process id for this session." },
-            extension: { type: "string", description: "The file extension being organized, e.g. '.pdf'." }
+            extension: { type: "string", description: "The file extension being organized, e.g. '.pdf'." },
+            statusMessage: {
+                type: "string",
+                description: "A short, friendly first-person message telling the user what you're about to do, e.g. 'Here's what I'm proposing for your PDF files...'. This will be shown directly to the user."
+            }
         },
-        required: ["ProcessId", "extension"]
+        required: ["ProcessId", "extension", "statusMessage"]
     },
-    async handler(params: { ProcessId: string; extension: string }): Promise<string> {
+    async handler(params: { ProcessId: string; extension: string; statusMessage: string }): Promise<string> {
         console.log(`\x1b[95m[Worker Tool]\x1b[0m PresentDocumentFolderPlanTool → ${params.ProcessId} / ${params.extension}`);
+        emitAgentMessage(params.statusMessage);
         const state = fileAgentRecord[params.ProcessId];
         if (!state) return "Error: Invalid ProcessId.";
 
@@ -642,8 +692,10 @@ export const PresentDocumentFolderPlanTool = ({
         const response = await requestFolderReview(params.extension, folderPlan);
 
         if (response.action === 'approve') {
+            emitAgentMessage("Got it — finalizing those folders now...");
             return 'USER_APPROVED';
         }
+        emitAgentMessage("Got it — let me adjust that...");
         return `USER_MESSAGE: ${response.message ?? 'User declined without a message. Ask what they would like to change.'}`;
     }
 });
@@ -661,12 +713,17 @@ export const PresentImageFolderPlanTool = ({
         type: "object",
         properties: {
             ProcessId: { type: "string", description: "The unique process id for this session." },
-            TaskId: { type: "number", description: "The Task Id of the todo list item being organized." }
+            TaskId: { type: "number", description: "The Task Id of the todo list item being organized." },
+            statusMessage: {
+                type: "string",
+                description: "A short, friendly first-person message telling the user what you're about to do, e.g. 'Here's what I'm proposing for your images...'. This will be shown directly to the user."
+            }
         },
-        required: ["ProcessId", "TaskId"]
+        required: ["ProcessId", "TaskId", "statusMessage"]
     },
-    async handler(params: { ProcessId: string; TaskId: number }): Promise<string> {
+    async handler(params: { ProcessId: string; TaskId: number; statusMessage: string }): Promise<string> {
         console.log(`\x1b[95m[Worker Tool]\x1b[0m PresentImageFolderPlanTool → ${params.ProcessId} / Task ${params.TaskId}`);
+        emitAgentMessage(params.statusMessage);
         const state = fileAgentRecord[params.ProcessId];
         if (!state) return "Error: Invalid ProcessId.";
 
@@ -675,8 +732,10 @@ export const PresentImageFolderPlanTool = ({
         const response = await requestFolderReview("__images__", folderPlan);
 
         if (response.action === 'approve') {
+            emitAgentMessage("Got it — finalizing those folders now...");
             return 'USER_APPROVED';
         }
+        emitAgentMessage("Got it — let me adjust that...");
         return `USER_MESSAGE: ${response.message ?? 'User declined without a message. Ask what they would like to change.'}`;
     }
 });
@@ -694,12 +753,17 @@ export const PresentNonDocumentFolderPlanTool = ({
         type: "object",
         properties: {
             ProcessId: { type: "string", description: "The unique process id for this session." },
-            TaskId: { type: "number", description: "The Task Id of the todo list item being organized." }
+            TaskId: { type: "number", description: "The Task Id of the todo list item being organized." },
+            statusMessage: {
+                type: "string",
+                description: "A short, friendly first-person message telling the user what you're about to do, e.g. 'Here's what I'm proposing for these files...'. This will be shown directly to the user."
+            }
         },
-        required: ["ProcessId", "TaskId"]
+        required: ["ProcessId", "TaskId", "statusMessage"]
     },
-    async handler(params: { ProcessId: string; TaskId: number }): Promise<string> {
+    async handler(params: { ProcessId: string; TaskId: number; statusMessage: string }): Promise<string> {
         console.log(`\x1b[95m[Worker Tool]\x1b[0m PresentNonDocumentFolderPlanTool → ${params.ProcessId} / Task ${params.TaskId}`);
+        emitAgentMessage(params.statusMessage);
         const state = fileAgentRecord[params.ProcessId];
         if (!state) return "Error: Invalid ProcessId.";
 
@@ -708,8 +772,10 @@ export const PresentNonDocumentFolderPlanTool = ({
         const response = await requestFolderReview("__non_documents__", folderPlan);
 
         if (response.action === 'approve') {
+            emitAgentMessage("Got it — finalizing those folders now...");
             return 'USER_APPROVED';
         }
+        emitAgentMessage("Got it — let me adjust that...");
         return `USER_MESSAGE: ${response.message ?? 'User declined without a message. Ask what they would like to change.'}`;
     }
 });

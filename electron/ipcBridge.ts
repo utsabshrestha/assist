@@ -79,6 +79,20 @@ export interface ScopeSelectionResponse {
   message?: string; // populated when action === 'message'
 }
 
+/** Sent from main → renderer to show the final move-plan confirmation before files are actually moved on disk. */
+export interface ExecutionConfirmRequest {
+  inputId: string;
+  plan: Record<string, string[]>; // destination folder -> file names
+  unassignedCount: number;
+}
+
+/** Sent from renderer → main after the user clicks Approve or submits a change request. */
+export interface ExecutionConfirmResponse {
+  inputId: string;
+  action: 'approve' | 'message';
+  message?: string; // populated when action === 'message'
+}
+
 // Internal event emitter to receive user input from the renderer
 const inputEmitter = new EventEmitter();
 let mainWindow: BrowserWindow | null = null;
@@ -91,11 +105,6 @@ let inputIdCounter = 0;
 export function setMainWindow(win: BrowserWindow): void {
   mainWindow = win;
 
-  // Listen for plain text user input
-  ipcMain.on('agent:user_input', (_event, payload: { inputId: string; value: string }) => {
-    inputEmitter.emit(`input:${payload.inputId}`, payload.value);
-  });
-
   // Listen for structured folder review responses (Approve or Message)
   ipcMain.on('agent:folder_review_response', (_event, payload: FolderReviewResponse) => {
     inputEmitter.emit(`input:${payload.inputId}`, payload);
@@ -103,6 +112,11 @@ export function setMainWindow(win: BrowserWindow): void {
 
   // Listen for structured scope selection responses (Submit or Message)
   ipcMain.on('agent:scope_selection_response', (_event, payload: ScopeSelectionResponse) => {
+    inputEmitter.emit(`input:${payload.inputId}`, payload);
+  });
+
+  // Listen for structured execution confirmation responses (Approve or Message)
+  ipcMain.on('agent:execution_confirm_response', (_event, payload: ExecutionConfirmResponse) => {
     inputEmitter.emit(`input:${payload.inputId}`, payload);
   });
 }
@@ -144,26 +158,6 @@ export function emitTodoUpdate(todoList: TodoItem[]): void {
 }
 
 /**
- * Request input from the user via the UI.
- * Returns a Promise that resolves when the user submits input from the renderer.
- */
-export function requestUserInput(promptLabel: string): Promise<string> {
-  return new Promise((resolve) => {
-    const inputId = `input_${++inputIdCounter}_${Date.now()}`;
-    
-    // One-time listener for this specific input
-    inputEmitter.once(`input:${inputId}`, (value: string) => {
-      // Echo what the user typed back as a "user" message in chat
-      emitAgentMessage(value, 'user');
-      resolve(value);
-    });
-
-    // Ask the renderer to show the input box
-    mainWindow?.webContents.send('agent:input_request', { promptLabel, inputId });
-  });
-}
-
-/**
  * Show the structured folder review panel in the renderer.
  * Blocks until the user clicks Approve or submits a change request.
  */
@@ -200,5 +194,22 @@ export function requestScopeSelection(
 
     const request: ScopeSelectionRequest = { inputId, categories, fileCountByExtension, totalFileCount, totalFileSize };
     mainWindow?.webContents.send('agent:scope_selection_request', request);
+  });
+}
+
+/**
+ * Show the final move-plan confirmation panel in the renderer, before any files are moved on disk.
+ * Blocks until the user clicks Approve or submits a change request.
+ */
+export function requestExecutionConfirmation(plan: Record<string, string[]>, unassignedCount: number): Promise<ExecutionConfirmResponse> {
+  return new Promise((resolve) => {
+    const inputId = `execution_confirm_${++inputIdCounter}_${Date.now()}`;
+
+    inputEmitter.once(`input:${inputId}`, (payload: ExecutionConfirmResponse) => {
+      resolve(payload);
+    });
+
+    const request: ExecutionConfirmRequest = { inputId, plan, unassignedCount };
+    mainWindow?.webContents.send('agent:execution_confirm_request', request);
   });
 }

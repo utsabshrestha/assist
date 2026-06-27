@@ -170,10 +170,12 @@ const PresentScopeSelectionTool = ({
         );
 
         if (response.action === 'message') {
+            emitAgentMessage("Got it — let me adjust that...");
             const breakdown = formatCategoryBreakdown(state.categorySummary, state.fileCountByExtension);
             return `USER_MESSAGE: ${response.message ?? 'User declined without a message. Ask what they would like to change.'}\n\nHere is what was found in the folder (category: extension(count)):\n${breakdown}`;
         }
 
+        emitAgentMessage("Got it — building your task list now...");
         const selected = response.selected ?? { documents: [], images: [], "non-documents": [] };
         const tasks = Object.entries(selected)
             .filter(([, extensionList]) => extensionList.length > 0)
@@ -212,12 +214,17 @@ const MemoryScratchpadTool = ({
         properties: {
             ProcessId: { type: "string" },
             action: { type: "string", enum: ["add_note", "view"], description: "Action to perform on scratchpad." },
-            note: { type: "string", description: "The content to remember. Used ONLY when action is 'add_note'." }
+            note: { type: "string", description: "The content to remember. Used ONLY when action is 'add_note'." },
+            statusMessage: {
+                type: "string",
+                description: "A short, friendly first-person message telling the user what you're about to do, e.g. 'Noting that down...'. This will be shown directly to the user."
+            }
         },
-        required: ["ProcessId", "action"]
+        required: ["ProcessId", "action", "statusMessage"]
     },
-    async handler(params: {ProcessId: string, action: string, note: string}): Promise<string> {
+    async handler(params: {ProcessId: string, action: string, note: string, statusMessage: string}): Promise<string> {
         emitLog(`MemoryScratchpadTool (Action: ${params.action})`, 'tool_call', 'MemoryScratchpadTool');
+        emitAgentMessage(params.statusMessage);
         const state = fileAgentRecord[params.ProcessId];
         if (!state) return "Error: Invalid ProcessId.";
 

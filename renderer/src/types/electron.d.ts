@@ -89,11 +89,18 @@ export interface ScopeSelectionRequest {
   totalFileSize: string;
 }
 
+/** Payload sent from main → renderer to render the final move-plan confirmation, before files are moved on disk. */
+export interface ExecutionConfirmRequest {
+  inputId: string;
+  plan: Record<string, string[]>;
+  unassignedCount: number;
+}
+
 export interface ElectronAPI {
   // Renderer → Main
-  sendInput: (inputId: string, value: string) => void;
   sendFolderReview: (inputId: string, action: 'approve' | 'message', message?: string) => void;
   sendScopeSelection: (inputId: string, action: 'submit' | 'message', selected?: CategorySummary, message?: string) => void;
+  sendExecutionConfirm: (inputId: string, action: 'approve' | 'message', message?: string) => void;
   startAgent: (userMessage: string) => void;
   selectFolder: () => Promise<string | null>;
 
@@ -102,9 +109,9 @@ export interface ElectronAPI {
   onLog: (callback: (log: AgentLog) => void) => () => void;
   onStage: (callback: (event: AgentStageEvent) => void) => () => void;
   onTodoUpdate: (callback: (event: AgentTodoUpdateEvent) => void) => () => void;
-  onInputRequest: (callback: (payload: { promptLabel: string; inputId: string }) => void) => () => void;
   onFolderReviewRequest: (callback: (payload: FolderReviewRequest) => void) => () => void;
   onScopeSelectionRequest: (callback: (payload: ScopeSelectionRequest) => void) => () => void;
+  onExecutionConfirmRequest: (callback: (payload: ExecutionConfirmRequest) => void) => () => void;
 }
 
 declare global {

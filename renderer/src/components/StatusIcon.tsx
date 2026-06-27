@@ -10,7 +10,7 @@ interface StatusIconProps {
 
 const STATUS_CONFIG: Record<TodoStatus, { Icon: React.FC<any>; color: string; spin?: boolean }> = {
   'not-started': { Icon: Clock, color: 'text-[#a8a29e]' },
-  'in-progress': { Icon: Loader2, color: 'text-[#2563eb]', spin: true },
+  'in-progress': { Icon: Loader2, color: 'text-[#c2613d]', spin: true },
   'completed': { Icon: CheckCircle2, color: 'text-[#16a34a]' },
   'failed': { Icon: XCircle, color: 'text-[#dc2626]' },
   'blocked': { Icon: AlertTriangle, color: 'text-[#d97706]' },

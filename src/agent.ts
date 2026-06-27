@@ -14,7 +14,7 @@ import {
 import { PlanningTools } from '../tools/planningAgentTools.js';
 import { CategorizationTools } from '../tools/categorizationAgentTools.js';
 import { ExecutionTools } from '../tools/executionAgentTools.js';
-import { emitAgentMessage, emitLog, emitStage, requestUserInput } from '../electron/ipcBridge.js';
+import { emitLog, emitStage } from '../electron/ipcBridge.js';
 
 export class FileAgent {
 
@@ -46,6 +46,8 @@ export class FileAgent {
             forceToolUse: true
         });
 
+        const MAX_AUTO_CONTINUE = 5;
+        let autoContinueCount1 = 0;
         while (true) {
             if (result1?.includes(HANDOFF_CATEGORIZATION_SENTINEL)) {
                 break;
@@ -54,12 +56,13 @@ export class FileAgent {
                 errorEncountered = true;
                 break;
             }
+            if (++autoContinueCount1 > MAX_AUTO_CONTINUE) {
+                emitLog('Planning Agent stalled without handing off — aborting.', 'error');
+                errorEncountered = true;
+                break;
+            }
 
-            const userInput = await requestUserInput('Planning Agent');
-
-            if (userInput.toLowerCase() === 'exit' || userInput.toLowerCase() === 'quit') return;
-
-            result1 = await session1.prompt(userInput, {
+            result1 = await session1.prompt('Continue with the next step.', {
                 functions: PlanningTools,
                 forceToolUse: true
             });
@@ -80,6 +83,7 @@ export class FileAgent {
             forceToolUse: true
         });
 
+        let autoContinueCount2 = 0;
         while (true) {
             if (result2?.includes(HANDOFF_EXECUTION_SENTINEL)) {
                 break;
@@ -88,12 +92,13 @@ export class FileAgent {
                 errorEncountered = true;
                 break;
             }
+            if (++autoContinueCount2 > MAX_AUTO_CONTINUE) {
+                emitLog('Categorization Agent stalled without handing off — aborting.', 'error');
+                errorEncountered = true;
+                break;
+            }
 
-            const userInput = await requestUserInput('Categorization Agent');
-
-            if (userInput.toLowerCase() === 'exit' || userInput.toLowerCase() === 'quit') return;
-
-            result2 = await session2.prompt(userInput, {
+            result2 = await session2.prompt('Continue with the next step.', {
                 functions: CategorizationTools,
                 forceToolUse: true
             });
