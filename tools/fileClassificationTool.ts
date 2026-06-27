@@ -95,7 +95,20 @@ export class FileClassificationTool {
                             { role: "system", content: sysprompt + "\n\nRespond ONLY with a valid JSON object containing a 'category_name' string property." },
                             { role: "user", content: prompt }
                         ],
-                        temperature: 0.0,
+                        temperature: 0.2,
+                        // Avoids sharing a KV cache slot with the concurrently running agentic
+                        // worker session (llama-server has 4 parallel slots) — cheap hygiene,
+                        // though confirmed NOT the cause of the empty-content failures below.
+                        // @ts-ignore - llama.cpp passthrough extra, not in the OpenAI SDK types
+                        cache_prompt: false,
+                        // Ministral genuinely reasons over some clusters (denser/more abstract
+                        // academic content reliably triggers it — confirmed via reasoning_content
+                        // inspection) and needs real room to finish before answering. A low cap
+                        // truncates mid-thought with finish_reason:"length" and empty content,
+                        // which is worse than just being slow. 800 gives it space to complete.
+                        max_tokens: 800,
+                        // @ts-ignore - llama.cpp's OpenAI-compatible server accepts repeat_penalty as a passthrough extra
+                        repeat_penalty: 1.3,
                         response_format: {
                             type: "json_schema",
                             json_schema: {
@@ -113,17 +126,20 @@ export class FileClassificationTool {
                         }
                     });
 
-                    let rawOutput = response.choices[0]?.message?.content || "";
+                    const message: any = response.choices[0]?.message;
+                    let rawOutput = message?.content || "";
                     let folderName = `Category_${label}`;
-                    
+
                     try {
                         const parsed = JSON.parse(rawOutput);
                         if (parsed.category_name) {
                             folderName = parsed.category_name;
                         }
                     } catch (e) {
-                        // Fallback if model somehow bypassed JSON schema
-                        folderName = rawOutput.replace(/<think>[\s\S]*?<\/think>/g, '').trim() || folderName;
+                        // Fallback if model somehow bypassed JSON schema, or got cut off
+                        // mid-reasoning (content empty, only reasoning_content populated).
+                        const fallbackText = rawOutput || message?.reasoning_content || "";
+                        folderName = fallbackText.replace(/<think>[\s\S]*?<\/think>/g, '').trim() || folderName;
                     }
                     
                     // Cleanup LLM output to grab just the first line/clean name

@@ -55,9 +55,20 @@ JSON:`;
                 { role: "system", content: dedupCategoryPrompt },
                 { role: "user", content: userDedupPrompt }
             ],
+            temperature: 0.2,
+            // See fileClassificationTool.ts for both of these: cache_prompt avoids
+            // cross-session KV cache slot reuse; max_tokens gives the model real
+            // room to finish reasoning before answering, instead of truncating
+            // mid-thought with empty content.
+            // @ts-ignore - llama.cpp passthrough extra, not in the OpenAI SDK types
+            cache_prompt: false,
+            max_tokens: 800,
+            // @ts-ignore - llama.cpp's OpenAI-compatible server accepts repeat_penalty as a passthrough extra
+            repeat_penalty: 1.3,
         });
 
-        const dedupeResult = response.choices[0]?.message?.content || "";
+        const message: any = response.choices[0]?.message;
+        const dedupeResult = message?.content || message?.reasoning_content || "";
         return parseDedupeOutput(dedupeResult).merges;
     } catch (e) {
         console.error("Error during category de-duplication:", e);

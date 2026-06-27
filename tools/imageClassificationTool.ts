@@ -151,7 +151,15 @@ export class ImageClassificationTool {
                             { role: "system", content: sysprompt + "\n\nRespond ONLY with a valid JSON object containing a 'category_name' string property." },
                             { role: "user", content: prompt }
                         ],
-                        temperature: 0.0,
+                        temperature: 0.2,
+                        // See fileClassificationTool.ts for both of these: cache_prompt avoids
+                        // cross-session KV cache slot reuse; max_tokens gives the model real
+                        // room to finish reasoning over denser clusters before answering.
+                        // @ts-ignore - llama.cpp passthrough extra, not in the OpenAI SDK types
+                        cache_prompt: false,
+                        max_tokens: 800,
+                        // @ts-ignore - llama.cpp's OpenAI-compatible server accepts repeat_penalty as a passthrough extra
+                        repeat_penalty: 1.3,
                         response_format: {
                             type: "json_schema",
                             json_schema: {
@@ -169,7 +177,8 @@ export class ImageClassificationTool {
                         }
                     });
 
-                    let rawOutput = response.choices[0]?.message?.content || "";
+                    const message: any = response.choices[0]?.message;
+                    let rawOutput = message?.content || "";
                     let folderName = `Image_Category_${label}`;
 
                     try {
@@ -178,7 +187,8 @@ export class ImageClassificationTool {
                             folderName = parsed.category_name;
                         }
                     } catch {
-                        folderName = rawOutput.replace(/<think>[\s\S]*?<\/think>/g, '').trim() || folderName;
+                        const fallbackText = rawOutput || message?.reasoning_content || "";
+                        folderName = fallbackText.replace(/<think>[\s\S]*?<\/think>/g, '').trim() || folderName;
                     }
 
                     // Clean the name
