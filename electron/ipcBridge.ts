@@ -10,14 +10,14 @@
 
 import { BrowserWindow, ipcMain } from 'electron';
 import { EventEmitter } from 'events';
-import type { FolderPlanEntry, CategorySummary, TodoItem, FolderPreviewEntry } from '../src/state/fileAgentState.js';
+import type { FolderPlanEntry, CategorySummary, TodoItem, FolderPreviewEntry, PlanScope, PlanScopeGroup } from '../src/state/fileAgentState.js';
 
 export type MessageType = 'agent' | 'user' | 'system' | 'task_update';
 export type LogType = 'tool_call' | 'tool_result' | 'pipeline' | 'error' | 'info';
 export type AgentStage = 'planning' | 'categorization' | 'execution' | 'done' | 'idle';
 
 // Re-export so consumers don't need a separate import
-export type { FolderPlanEntry, CategorySummary, TodoItem, FolderPreviewEntry };
+export type { FolderPlanEntry, CategorySummary, TodoItem, FolderPreviewEntry, PlanScope, PlanScopeGroup };
 
 export interface AgentMessage {
   type: MessageType;
@@ -79,17 +79,27 @@ export interface ScopeSelectionResponse {
   message?: string; // populated when action === 'message'
 }
 
-/** Sent from main → renderer to show the final move-plan confirmation before files are actually moved on disk. */
-export interface ExecutionConfirmRequest {
+/** Sent from main → renderer to show the editable final execution plan before files are actually moved on disk. */
+export interface ExecutionPlanRequest {
   inputId: string;
-  plan: Record<string, string[]>; // destination folder -> file names
+  scopes: PlanScopeGroup[];
   unassignedCount: number;
 }
 
+/** One file's final destination, as edited by the user in the plan panel. */
+export interface ExecutionPlanFileAssignment {
+  fileName: string;
+  category: string; // final category/folder display name
+  folderName: string; // bare new-folder NAME the user set — never a path
+  scope: PlanScope; // which base-folder convention applies
+  extension?: string; // present for documents
+}
+
 /** Sent from renderer → main after the user clicks Approve or submits a change request. */
-export interface ExecutionConfirmResponse {
+export interface ExecutionPlanResponse {
   inputId: string;
   action: 'approve' | 'message';
+  assignments?: ExecutionPlanFileAssignment[]; // populated when action === 'approve'
   message?: string; // populated when action === 'message'
 }
 
@@ -115,8 +125,8 @@ export function setMainWindow(win: BrowserWindow): void {
     inputEmitter.emit(`input:${payload.inputId}`, payload);
   });
 
-  // Listen for structured execution confirmation responses (Approve or Message)
-  ipcMain.on('agent:execution_confirm_response', (_event, payload: ExecutionConfirmResponse) => {
+  // Listen for structured execution plan responses (Approve or Message)
+  ipcMain.on('agent:execution_plan_response', (_event, payload: ExecutionPlanResponse) => {
     inputEmitter.emit(`input:${payload.inputId}`, payload);
   });
 }
@@ -198,18 +208,18 @@ export function requestScopeSelection(
 }
 
 /**
- * Show the final move-plan confirmation panel in the renderer, before any files are moved on disk.
+ * Show the editable final execution plan panel in the renderer, before any files are moved on disk.
  * Blocks until the user clicks Approve or submits a change request.
  */
-export function requestExecutionConfirmation(plan: Record<string, string[]>, unassignedCount: number): Promise<ExecutionConfirmResponse> {
+export function requestExecutionPlanConfirmation(scopes: PlanScopeGroup[], unassignedCount: number): Promise<ExecutionPlanResponse> {
   return new Promise((resolve) => {
-    const inputId = `execution_confirm_${++inputIdCounter}_${Date.now()}`;
+    const inputId = `execution_plan_${++inputIdCounter}_${Date.now()}`;
 
-    inputEmitter.once(`input:${inputId}`, (payload: ExecutionConfirmResponse) => {
+    inputEmitter.once(`input:${inputId}`, (payload: ExecutionPlanResponse) => {
       resolve(payload);
     });
 
-    const request: ExecutionConfirmRequest = { inputId, plan, unassignedCount };
-    mainWindow?.webContents.send('agent:execution_confirm_request', request);
+    const request: ExecutionPlanRequest = { inputId, scopes, unassignedCount };
+    mainWindow?.webContents.send('agent:execution_plan_request', request);
   });
 }

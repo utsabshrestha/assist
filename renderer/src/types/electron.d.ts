@@ -89,18 +89,52 @@ export interface ScopeSelectionRequest {
   totalFileSize: string;
 }
 
-/** Payload sent from main → renderer to render the final move-plan confirmation, before files are moved on disk. */
-export interface ExecutionConfirmRequest {
+export type PlanScope = 'documents' | 'images' | 'non-documents';
+
+export interface PlanFileEntry {
+  fileName: string;
+  fileSize: number;
+}
+
+export interface PlanFolderEntry {
+  category: string;
+  folder: string;
+  files: PlanFileEntry[];
+}
+
+export interface PlanExtensionGroup {
+  extension: string;
+  folders: PlanFolderEntry[];
+}
+
+/** Documents populates extensionGroups; Images/Non-Documents populate folders directly. */
+export interface PlanScopeGroup {
+  scope: PlanScope;
+  extensionGroups?: PlanExtensionGroup[];
+  folders?: PlanFolderEntry[];
+}
+
+/** Payload sent from main → renderer to render the editable final execution plan, before files are moved on disk. */
+export interface ExecutionPlanRequest {
   inputId: string;
-  plan: Record<string, string[]>;
+  scopes: PlanScopeGroup[];
   unassignedCount: number;
+}
+
+/** One file's final destination, as edited by the user in the plan panel. */
+export interface ExecutionPlanFileAssignment {
+  fileName: string;
+  category: string;
+  folderName: string;
+  scope: PlanScope;
+  extension?: string;
 }
 
 export interface ElectronAPI {
   // Renderer → Main
   sendFolderReview: (inputId: string, action: 'approve' | 'message', message?: string) => void;
   sendScopeSelection: (inputId: string, action: 'submit' | 'message', selected?: CategorySummary, message?: string) => void;
-  sendExecutionConfirm: (inputId: string, action: 'approve' | 'message', message?: string) => void;
+  sendExecutionPlanResponse: (inputId: string, action: 'approve' | 'message', assignments?: ExecutionPlanFileAssignment[], message?: string) => void;
   startAgent: (userMessage: string) => void;
   selectFolder: () => Promise<string | null>;
 
@@ -111,7 +145,7 @@ export interface ElectronAPI {
   onTodoUpdate: (callback: (event: AgentTodoUpdateEvent) => void) => () => void;
   onFolderReviewRequest: (callback: (payload: FolderReviewRequest) => void) => () => void;
   onScopeSelectionRequest: (callback: (payload: ScopeSelectionRequest) => void) => () => void;
-  onExecutionConfirmRequest: (callback: (payload: ExecutionConfirmRequest) => void) => () => void;
+  onExecutionPlanRequest: (callback: (payload: ExecutionPlanRequest) => void) => () => void;
 }
 
 declare global {

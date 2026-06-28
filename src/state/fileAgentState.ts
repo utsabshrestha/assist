@@ -43,6 +43,35 @@ export interface TodoItem {
     folderPreview?: FolderPreviewEntry[];
 }
 
+export type PlanScope = 'documents' | 'images' | 'non-documents';
+
+export interface PlanFileEntry {
+    fileName: string;
+    fileSize: number;
+}
+
+export interface PlanFolderEntry {
+    category: string;
+    folder: string; // full absolute path
+    files: PlanFileEntry[]; // full list, no truncation
+}
+
+export interface PlanExtensionGroup {
+    extension: string;
+    folders: PlanFolderEntry[];
+}
+
+/**
+ * Documents populates extensionGroups (proposedFolderPlan is keyed per-extension there);
+ * Images/Non-Documents populate folders directly (proposedFolderPlan is keyed by
+ * __task_${TaskId}, covering the whole task's extension list as a single unit).
+ */
+export interface PlanScopeGroup {
+    scope: PlanScope;
+    extensionGroups?: PlanExtensionGroup[];
+    folders?: PlanFolderEntry[];
+}
+
 export class fileAgentState {
     public workspacePath: string = "";
     public fileListData: fileStatus[] = [];

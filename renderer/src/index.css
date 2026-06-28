@@ -38,6 +38,7 @@
   /* Fonts */
   --font-sans: 'Inter', system-ui, -apple-system, sans-serif;
   --font-mono: 'JetBrains Mono', 'Menlo', 'Monaco', monospace;
+  --font-display: 'Playfair Display', Georgia, 'Times New Roman', serif;
 }
 
 /* ============================================

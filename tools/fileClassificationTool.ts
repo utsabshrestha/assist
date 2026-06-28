@@ -106,7 +106,7 @@ export class FileClassificationTool {
                         // inspection) and needs real room to finish before answering. A low cap
                         // truncates mid-thought with finish_reason:"length" and empty content,
                         // which is worse than just being slow. 800 gives it space to complete.
-                        max_tokens: 800,
+                        //max_tokens: 1800,
                         // @ts-ignore - llama.cpp's OpenAI-compatible server accepts repeat_penalty as a passthrough extra
                         repeat_penalty: 1.3,
                         response_format: {

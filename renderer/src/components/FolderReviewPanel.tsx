@@ -1,5 +1,5 @@
 import React, { useState, useCallback, useRef, useEffect } from 'react';
-import { FolderTree, ChevronRight, Check } from 'lucide-react';
+import { ChevronRight, Check } from 'lucide-react';
 import type { FolderReviewRequest } from '../types/electron.js';
 
 interface FolderReviewPanelProps {
@@ -41,10 +41,6 @@ export const FolderReviewPanel: React.FC<FolderReviewPanelProps> = ({ request, o
     }
   };
 
-  const extLabel = request.extension.startsWith('.')
-    ? request.extension.toUpperCase().slice(1)
-    : request.extension.toUpperCase();
-
   return (
     <div
       className="folder-review-panel"
@@ -59,38 +55,13 @@ export const FolderReviewPanel: React.FC<FolderReviewPanelProps> = ({ request, o
       }}
     >
       {/* Header */}
-      <div style={{ display: 'flex', alignItems: 'center', gap: '10px', marginBottom: '12px' }}>
-        <div
-          style={{
-            width: 32, height: 32, borderRadius: 8,
-            background: 'linear-gradient(135deg, #c2613d, #a8502f)',
-            display: 'flex', alignItems: 'center', justifyContent: 'center',
-            flexShrink: 0,
-          }}
-        >
-          <FolderTree size={16} color="white" strokeWidth={2} />
-        </div>
-
-        <div>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-            <span style={{ fontSize: 13, fontWeight: 600, color: '#57341f' }}>
-              Proposed Folder Structure
-            </span>
-            <span
-              style={{
-                fontSize: 10, fontWeight: 700, letterSpacing: '0.05em',
-                padding: '2px 7px', borderRadius: 99,
-                background: 'linear-gradient(135deg, #c2613d, #a8502f)',
-                color: 'white',
-              }}
-            >
-              .{extLabel}
-            </span>
-          </div>
-          <p style={{ fontSize: 12, color: '#8a5a3d', margin: '2px 0 0' }}>
-            Review the categories below before finalizing.
-          </p>
-        </div>
+      <div style={{ marginBottom: '12px' }}>
+        <span style={{ fontSize: 13, fontWeight: 600, color: '#57341f' }}>
+          Proposed Folder Structure
+        </span>
+        <p style={{ fontSize: 12, color: '#8a5a3d', margin: '2px 0 0' }}>
+          Review the categories below before finalizing.
+        </p>
       </div>
 
       {/* Folder table — stays visible pre-submit, and re-expandable after */}
@@ -99,20 +70,21 @@ export const FolderReviewPanel: React.FC<FolderReviewPanelProps> = ({ request, o
           style={{
             background: 'rgba(255,255,255,0.7)',
             borderRadius: 8,
-            overflow: 'hidden',
+            overflow: 'auto',
             border: '1px solid #f3ddcd',
             marginBottom: 14,
           }}
         >
           <div
             style={{
-              display: 'grid', gridTemplateColumns: '160px 1fr',
+              display: 'flex', gap: 16,
               padding: '6px 12px',
               background: '#f3ddcd',
               borderBottom: '1px solid #e8cab8',
+              whiteSpace: 'nowrap',
             }}
           >
-            <span style={{ fontSize: 10, fontWeight: 700, color: '#8a5a3d', letterSpacing: '0.06em', textTransform: 'uppercase' }}>
+            <span style={{ flex: '0 0 160px', fontSize: 10, fontWeight: 700, color: '#8a5a3d', letterSpacing: '0.06em', textTransform: 'uppercase' }}>
               Category
             </span>
             <span style={{ fontSize: 10, fontWeight: 700, color: '#8a5a3d', letterSpacing: '0.06em', textTransform: 'uppercase' }}>
@@ -124,13 +96,14 @@ export const FolderReviewPanel: React.FC<FolderReviewPanelProps> = ({ request, o
             <div
               key={`${entry.category}-${i}`}
               style={{
-                display: 'grid', gridTemplateColumns: '160px 1fr',
+                display: 'flex', gap: 16,
                 padding: '8px 12px',
                 borderBottom: i < request.folders.length - 1 ? '1px solid #f3ddcd' : 'none',
                 alignItems: 'center',
+                whiteSpace: 'nowrap',
               }}
             >
-              <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+              <div style={{ flex: '0 0 160px', display: 'flex', alignItems: 'center', gap: 6 }}>
                 <span
                   style={{
                     display: 'inline-block',
@@ -139,7 +112,7 @@ export const FolderReviewPanel: React.FC<FolderReviewPanelProps> = ({ request, o
                     flexShrink: 0,
                   }}
                 />
-                <span style={{ fontSize: 12, fontWeight: 600, color: '#57341f', wordBreak: 'break-word' }}>
+                <span style={{ fontSize: 12, fontWeight: 600, color: '#57341f' }}>
                   {entry.category}
                 </span>
               </div>
@@ -149,8 +122,6 @@ export const FolderReviewPanel: React.FC<FolderReviewPanelProps> = ({ request, o
                 style={{
                   fontSize: 11, color: '#8a5a3d',
                   fontFamily: 'ui-monospace, SFMono-Regular, Menlo, monospace',
-                  overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
-                  paddingLeft: 8,
                 }}
               >
                 {entry.folder}
@@ -169,17 +140,17 @@ export const FolderReviewPanel: React.FC<FolderReviewPanelProps> = ({ request, o
                 id={`approve-btn-${request.inputId}`}
                 onClick={handleApprove}
                 style={{
-                  display: 'flex', alignItems: 'center', gap: 6,
-                  padding: '8px 18px', borderRadius: 8, border: 'none', cursor: 'pointer',
+                  display: 'flex', alignItems: 'center', gap: 5,
+                  padding: '5px 12px', borderRadius: 7, border: 'none', cursor: 'pointer',
                   background: 'var(--color-accent)',
-                  color: 'white', fontSize: 13, fontWeight: 600,
+                  color: 'white', fontSize: 12, fontWeight: 600,
                   boxShadow: '0 2px 8px rgba(194,97,61,0.3)',
                   transition: 'opacity 0.15s',
                 }}
                 onMouseEnter={e => (e.currentTarget.style.opacity = '0.88')}
                 onMouseLeave={e => (e.currentTarget.style.opacity = '1')}
               >
-                <Check size={14} strokeWidth={2.5} />
+                <Check size={12} strokeWidth={2.5} />
                 Approve
               </button>
 
@@ -187,16 +158,16 @@ export const FolderReviewPanel: React.FC<FolderReviewPanelProps> = ({ request, o
                 id={`changes-btn-${request.inputId}`}
                 onClick={() => setMode('changes')}
                 style={{
-                  display: 'flex', alignItems: 'center', gap: 6,
-                  padding: '8px 16px', borderRadius: 8, cursor: 'pointer',
+                  display: 'flex', alignItems: 'center', gap: 5,
+                  padding: '5px 12px', borderRadius: 7, cursor: 'pointer',
                   background: 'white', color: '#8a5a3d',
-                  border: '1px solid #e8cab8', fontSize: 13, fontWeight: 500,
+                  border: '1px solid #e8cab8', fontSize: 12, fontWeight: 500,
                   transition: 'background 0.15s',
                 }}
                 onMouseEnter={e => (e.currentTarget.style.background = '#fdf1ec')}
                 onMouseLeave={e => (e.currentTarget.style.background = 'white')}
               >
-                <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
                   <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/>
                   <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/>
                 </svg>

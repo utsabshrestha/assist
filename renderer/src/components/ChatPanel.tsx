@@ -1,11 +1,11 @@
 import React, { useEffect, useRef, useState, useCallback } from 'react';
-import type { AgentStage, FolderReviewRequest, ScopeSelectionRequest, ExecutionConfirmRequest, CategorySummary } from '../types/electron.js';
+import { ClipboardCheck } from 'lucide-react';
+import type { AgentStage, FolderReviewRequest, ScopeSelectionRequest, ExecutionPlanRequest, CategorySummary } from '../types/electron.js';
 import type { TimelineRow } from '../App.js';
 import { TimelineEntry } from './TimelineEntry.js';
 import { StageProgressBar } from './StageProgressBar.js';
 import { FolderReviewPanel } from './FolderReviewPanel.js';
 import { ScopeSelectionPanel } from './ScopeSelectionPanel.js';
-import { ExecutionConfirmPanel } from './ExecutionConfirmPanel.js';
 
 interface ChatPanelProps {
   timelineRows: TimelineRow[];
@@ -13,10 +13,10 @@ interface ChatPanelProps {
   isThinking: boolean;
   pendingFolderReview: FolderReviewRequest | null;
   pendingScopeSelection: ScopeSelectionRequest | null;
-  pendingExecutionConfirm: ExecutionConfirmRequest | null;
+  pendingExecutionPlan: ExecutionPlanRequest | null;
   onFolderReviewSubmit: (inputId: string, action: 'approve' | 'message', message?: string) => void;
   onScopeSelectionSubmit: (inputId: string, action: 'submit' | 'message', selected?: CategorySummary, message?: string) => void;
-  onExecutionConfirmSubmit: (inputId: string, action: 'approve' | 'message', message?: string) => void;
+  onOpenExecutionPlan: () => void;
   hasStarted: boolean;
   onStart: (msg: string) => void;
 }
@@ -27,18 +27,16 @@ export const ChatPanel: React.FC<ChatPanelProps> = ({
   isThinking,
   pendingFolderReview,
   pendingScopeSelection,
-  pendingExecutionConfirm,
+  pendingExecutionPlan,
   onFolderReviewSubmit,
   onScopeSelectionSubmit,
-  onExecutionConfirmSubmit,
+  onOpenExecutionPlan,
   hasStarted,
   onStart,
 }) => {
-  const [inputValue, setInputValue] = useState('');
   const [selectedFolder, setSelectedFolder] = useState<string>('');
   const [folderError, setFolderError] = useState<string>('');
   const bottomRef = useRef<HTMLDivElement>(null);
-  const inputRef = useRef<HTMLTextAreaElement>(null);
 
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: 'smooth' });
@@ -58,21 +56,10 @@ export const ChatPanel: React.FC<ChatPanelProps> = ({
       setFolderError('Please select a folder to organize.');
       return;
     }
-    const message = inputValue.trim()
-      ? `Organize the folder at: ${selectedFolder}\n\nAdditional instructions: ${inputValue.trim()}`
-      : `Organize the folder at: ${selectedFolder}`;
-    onStart(message);
-    setInputValue('');
-  }, [selectedFolder, inputValue, onStart]);
+    onStart(`Organize the folder at: ${selectedFolder}`);
+  }, [selectedFolder, onStart]);
 
-  const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
-    if (e.key === 'Enter' && !e.shiftKey) {
-      e.preventDefault();
-      handleStart();
-    }
-  };
-
-  const pendingPanel = pendingFolderReview || pendingScopeSelection || pendingExecutionConfirm;
+  const pendingPanel = pendingFolderReview || pendingScopeSelection || pendingExecutionPlan;
   const latestIndex = timelineRows.length - 1;
 
   return (
@@ -92,7 +79,7 @@ export const ChatPanel: React.FC<ChatPanelProps> = ({
         {!hasStarted && (
           <div className="flex flex-col items-center justify-center h-full gap-8 pb-16">
             <div className="text-center">
-              <h1 className="text-2xl font-semibold text-[#1c1917] tracking-tight mb-2">File Assist</h1>
+              <h1 className="text-3xl font-semibold text-[#1c1917] tracking-tight mb-2" style={{ fontFamily: 'var(--font-display)' }}>File Assist</h1>
               <p className="text-sm text-[#78716c] max-w-sm leading-relaxed">
                 Select a folder and let the File assist help you plan, categorize, and organize your files.
               </p>
@@ -130,23 +117,6 @@ export const ChatPanel: React.FC<ChatPanelProps> = ({
               {folderError && (
                 <p className="text-xs text-red-500">{folderError}</p>
               )}
-
-              {/* Optional instructions */}
-              <div>
-                <label className="block text-xs font-semibold text-[#57534e] uppercase tracking-wider mb-2">
-                  Instructions (optional)
-                </label>
-                <textarea
-                  ref={inputRef}
-                  id="start-instructions"
-                  value={inputValue}
-                  onChange={e => setInputValue(e.target.value)}
-                  onKeyDown={handleKeyDown}
-                  placeholder="e.g. Keep PDF files separate, group images by date…"
-                  rows={2}
-                  className="input-field w-full px-3 py-2.5 text-sm resize-none selectable"
-                />
-              </div>
 
               <button
                 id="start-agent-btn"
@@ -189,11 +159,14 @@ export const ChatPanel: React.FC<ChatPanelProps> = ({
               />
             )}
 
-            {pendingExecutionConfirm && !isThinking && (
-              <ExecutionConfirmPanel
-                request={pendingExecutionConfirm}
-                onSubmit={onExecutionConfirmSubmit}
-              />
+            {pendingExecutionPlan && !isThinking && (
+              <button
+                onClick={onOpenExecutionPlan}
+                className="flex items-center gap-2 px-4 py-2.5 rounded-xl border border-[#e8cab8] bg-gradient-to-br from-[#fdf1ec] to-[#f9f1ea] text-sm font-medium text-[#57341f] hover:shadow-md transition-shadow"
+              >
+                <ClipboardCheck size={15} strokeWidth={2} className="text-[#c2613d]" />
+                Review & Confirm Plan
+              </button>
             )}
           </div>
         )}

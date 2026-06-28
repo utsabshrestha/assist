@@ -7,16 +7,16 @@
  */
 
 import { contextBridge, ipcRenderer } from 'electron';
-import type { AgentMessage, AgentLog, AgentStageEvent, AgentTodoUpdateEvent, FolderReviewRequest, FolderReviewResponse, ScopeSelectionRequest, ScopeSelectionResponse, ExecutionConfirmRequest, ExecutionConfirmResponse, CategorySummary, TodoItem, FolderPreviewEntry } from './ipcBridge.js';
+import type { AgentMessage, AgentLog, AgentStageEvent, AgentTodoUpdateEvent, FolderReviewRequest, FolderReviewResponse, ScopeSelectionRequest, ScopeSelectionResponse, ExecutionPlanRequest, ExecutionPlanResponse, ExecutionPlanFileAssignment, CategorySummary, TodoItem, FolderPreviewEntry } from './ipcBridge.js';
 
 // Re-export types for renderer consumption
-export type { AgentMessage, AgentLog, AgentStageEvent, AgentTodoUpdateEvent, FolderReviewRequest, FolderReviewResponse, ScopeSelectionRequest, ScopeSelectionResponse, ExecutionConfirmRequest, ExecutionConfirmResponse, CategorySummary, TodoItem, FolderPreviewEntry };
+export type { AgentMessage, AgentLog, AgentStageEvent, AgentTodoUpdateEvent, FolderReviewRequest, FolderReviewResponse, ScopeSelectionRequest, ScopeSelectionResponse, ExecutionPlanRequest, ExecutionPlanResponse, ExecutionPlanFileAssignment, CategorySummary, TodoItem, FolderPreviewEntry };
 
 export interface ElectronAPI {
   // Renderer → Main
   sendFolderReview: (inputId: string, action: 'approve' | 'message', message?: string) => void;
   sendScopeSelection: (inputId: string, action: 'submit' | 'message', selected?: CategorySummary, message?: string) => void;
-  sendExecutionConfirm: (inputId: string, action: 'approve' | 'message', message?: string) => void;
+  sendExecutionPlanResponse: (inputId: string, action: 'approve' | 'message', assignments?: ExecutionPlanFileAssignment[], message?: string) => void;
   startAgent: (userMessage: string) => void;
   selectFolder: () => Promise<string | null>;
 
@@ -27,7 +27,7 @@ export interface ElectronAPI {
   onTodoUpdate: (callback: (event: AgentTodoUpdateEvent) => void) => () => void;
   onFolderReviewRequest: (callback: (payload: FolderReviewRequest) => void) => () => void;
   onScopeSelectionRequest: (callback: (payload: ScopeSelectionRequest) => void) => () => void;
-  onExecutionConfirmRequest: (callback: (payload: ExecutionConfirmRequest) => void) => () => void;
+  onExecutionPlanRequest: (callback: (payload: ExecutionPlanRequest) => void) => () => void;
 }
 
 contextBridge.exposeInMainWorld('electronAPI', {
@@ -46,9 +46,14 @@ contextBridge.exposeInMainWorld('electronAPI', {
     ipcRenderer.send('agent:scope_selection_response', payload);
   },
 
-  sendExecutionConfirm: (inputId: string, action: 'approve' | 'message', message?: string) => {
-    const payload: ExecutionConfirmResponse = { inputId, action, ...(message !== undefined ? { message } : {}) };
-    ipcRenderer.send('agent:execution_confirm_response', payload);
+  sendExecutionPlanResponse: (inputId: string, action: 'approve' | 'message', assignments?: ExecutionPlanFileAssignment[], message?: string) => {
+    const payload: ExecutionPlanResponse = {
+      inputId,
+      action,
+      ...(assignments !== undefined ? { assignments } : {}),
+      ...(message !== undefined ? { message } : {})
+    };
+    ipcRenderer.send('agent:execution_plan_response', payload);
   },
 
   startAgent: (userMessage: string) => {
@@ -89,10 +94,10 @@ contextBridge.exposeInMainWorld('electronAPI', {
     return () => ipcRenderer.removeListener('agent:scope_selection_request', handler);
   },
 
-  onExecutionConfirmRequest: (callback: (payload: ExecutionConfirmRequest) => void) => {
-    const handler = (_: Electron.IpcRendererEvent, payload: ExecutionConfirmRequest) => callback(payload);
-    ipcRenderer.on('agent:execution_confirm_request', handler);
-    return () => ipcRenderer.removeListener('agent:execution_confirm_request', handler);
+  onExecutionPlanRequest: (callback: (payload: ExecutionPlanRequest) => void) => {
+    const handler = (_: Electron.IpcRendererEvent, payload: ExecutionPlanRequest) => callback(payload);
+    ipcRenderer.on('agent:execution_plan_request', handler);
+    return () => ipcRenderer.removeListener('agent:execution_plan_request', handler);
   },
 
   onTodoUpdate: (callback: (event: AgentTodoUpdateEvent) => void) => {

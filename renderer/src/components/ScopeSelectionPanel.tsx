@@ -1,5 +1,5 @@
 import React, { useState, useCallback, useRef, useEffect } from 'react';
-import { ListChecks, ChevronRight, Check } from 'lucide-react';
+import { ChevronRight, Check } from 'lucide-react';
 import type { ScopeSelectionRequest, CategorySummary } from '../types/electron.js';
 
 interface ScopeSelectionPanelProps {
@@ -84,26 +84,13 @@ export const ScopeSelectionPanel: React.FC<ScopeSelectionPanelProps> = ({ reques
       }}
     >
       {/* Header */}
-      <div style={{ display: 'flex', alignItems: 'center', gap: '10px', marginBottom: '12px' }}>
-        <div
-          style={{
-            width: 32, height: 32, borderRadius: 8,
-            background: 'linear-gradient(135deg, #c2613d, #a8502f)',
-            display: 'flex', alignItems: 'center', justifyContent: 'center',
-            flexShrink: 0,
-          }}
-        >
-          <ListChecks size={16} color="white" strokeWidth={2} />
-        </div>
-
-        <div>
-          <span style={{ fontSize: 13, fontWeight: 600, color: '#57341f' }}>
-            What would you like to organize?
-          </span>
-          <p style={{ fontSize: 12, color: '#8a5a3d', margin: '2px 0 0' }}>
-            {request.totalFileCount} files found ({request.totalFileSize}). Pick the categories to organize.
-          </p>
-        </div>
+      <div style={{ marginBottom: '12px' }}>
+        <span style={{ fontSize: 13, fontWeight: 600, color: '#57341f' }}>
+          What would you like to organize?
+        </span>
+        <p style={{ fontSize: 12, color: '#8a5a3d', margin: '2px 0 0' }}>
+          {request.totalFileCount} files found ({request.totalFileSize}). Pick the categories to organize.
+        </p>
       </div>
 
       {/* Category checklist — stays visible pre-submit, and re-expandable after */}
@@ -133,7 +120,7 @@ export const ScopeSelectionPanel: React.FC<ScopeSelectionPanelProps> = ({ reques
                 checked={!!checked[key]}
                 onChange={() => toggleCategory(key)}
                 disabled={submitted}
-                style={{ marginTop: 2, width: 15, height: 15, cursor: submitted ? 'default' : 'pointer', accentColor: '#c2613d' }}
+                style={{ marginTop: 2, width: 12, height: 12, cursor: submitted ? 'default' : 'pointer', accentColor: '#c2613d' }}
               />
               <div>
                 <div style={{ fontSize: 13, fontWeight: 600, color: '#57341f' }}>
@@ -163,18 +150,18 @@ export const ScopeSelectionPanel: React.FC<ScopeSelectionPanelProps> = ({ reques
                 onClick={handleContinue}
                 disabled={!anyChecked}
                 style={{
-                  display: 'flex', alignItems: 'center', gap: 6,
-                  padding: '8px 18px', borderRadius: 8, border: 'none',
+                  display: 'flex', alignItems: 'center', gap: 5,
+                  padding: '5px 12px', borderRadius: 7, border: 'none',
                   cursor: anyChecked ? 'pointer' : 'not-allowed',
                   background: anyChecked ? 'var(--color-accent)' : '#f3ddcd',
-                  color: anyChecked ? 'white' : '#b89178', fontSize: 13, fontWeight: 600,
+                  color: anyChecked ? 'white' : '#b89178', fontSize: 12, fontWeight: 600,
                   boxShadow: anyChecked ? '0 2px 8px rgba(194,97,61,0.3)' : 'none',
                   transition: 'opacity 0.15s',
                 }}
                 onMouseEnter={e => { if (anyChecked) e.currentTarget.style.opacity = '0.88'; }}
                 onMouseLeave={e => { if (anyChecked) e.currentTarget.style.opacity = '1'; }}
               >
-                <Check size={14} strokeWidth={2.5} />
+                <Check size={12} strokeWidth={2.5} />
                 Continue
               </button>
 
@@ -182,10 +169,10 @@ export const ScopeSelectionPanel: React.FC<ScopeSelectionPanelProps> = ({ reques
                 id={`scope-changes-btn-${request.inputId}`}
                 onClick={() => setMode('changes')}
                 style={{
-                  display: 'flex', alignItems: 'center', gap: 6,
-                  padding: '8px 16px', borderRadius: 8, cursor: 'pointer',
+                  display: 'flex', alignItems: 'center', gap: 5,
+                  padding: '5px 12px', borderRadius: 7, cursor: 'pointer',
                   background: 'white', color: '#8a5a3d',
-                  border: '1px solid #e8cab8', fontSize: 13, fontWeight: 500,
+                  border: '1px solid #e8cab8', fontSize: 12, fontWeight: 500,
                   transition: 'background 0.15s',
                 }}
                 onMouseEnter={e => (e.currentTarget.style.background = '#fdf1ec')}

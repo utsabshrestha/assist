@@ -1,8 +1,9 @@
 import React, { useEffect, useState, useCallback, useRef, useMemo } from 'react';
-import type { AgentMessage, AgentLog, AgentStage, FolderReviewRequest, ScopeSelectionRequest, ExecutionConfirmRequest, CategorySummary, TodoItem } from './types/electron.js';
+import type { AgentMessage, AgentLog, AgentStage, FolderReviewRequest, ScopeSelectionRequest, ExecutionPlanRequest, ExecutionPlanFileAssignment, CategorySummary, TodoItem } from './types/electron.js';
 import { ChatPanel } from './components/ChatPanel.js';
 import { LogPanel } from './components/LogPanel.js';
 import { StageBadge } from './components/StageBadge.js';
+import { ExecutionPlanPanel } from './components/ExecutionPlanPanel.js';
 
 export type TimelineRow =
   | { kind: 'message'; data: AgentMessage }
@@ -17,7 +18,8 @@ const App: React.FC = () => {
   const [logPanelVisible, setLogPanelVisible] = useState(true);
   const [pendingFolderReview, setPendingFolderReview] = useState<FolderReviewRequest | null>(null);
   const [pendingScopeSelection, setPendingScopeSelection] = useState<ScopeSelectionRequest | null>(null);
-  const [pendingExecutionConfirm, setPendingExecutionConfirm] = useState<ExecutionConfirmRequest | null>(null);
+  const [pendingExecutionPlan, setPendingExecutionPlan] = useState<ExecutionPlanRequest | null>(null);
+  const [executionPlanModalOpen, setExecutionPlanModalOpen] = useState(false);
   const [todoList, setTodoList] = useState<TodoItem[]>([]);
 
   // Merge narration (messages) and pipeline milestones (logs) into one chronological
@@ -78,9 +80,9 @@ const App: React.FC = () => {
       setPendingScopeSelection(payload);
     });
 
-    const removeExecutionConfirmRequest = api.onExecutionConfirmRequest((payload) => {
+    const removeExecutionPlanRequest = api.onExecutionPlanRequest((payload) => {
       setIsThinking(false);
-      setPendingExecutionConfirm(payload);
+      setPendingExecutionPlan(payload);
     });
 
     const removeTodoUpdate = api.onTodoUpdate(({ todoList }) => {
@@ -93,7 +95,7 @@ const App: React.FC = () => {
       removeStage();
       removeFolderReviewRequest();
       removeScopeSelectionRequest();
-      removeExecutionConfirmRequest();
+      removeExecutionPlanRequest();
       removeTodoUpdate();
     };
   }, []);
@@ -119,10 +121,11 @@ const App: React.FC = () => {
     window.electronAPI?.sendScopeSelection(inputId, action, selected, message);
   }, []);
 
-  const handleExecutionConfirmSubmit = useCallback((inputId: string, action: 'approve' | 'message', message?: string) => {
-    setPendingExecutionConfirm(null);
+  const handleExecutionPlanSubmit = useCallback((inputId: string, action: 'approve' | 'message', assignments?: ExecutionPlanFileAssignment[], message?: string) => {
+    setPendingExecutionPlan(null);
+    setExecutionPlanModalOpen(false);
     setIsThinking(true);
-    window.electronAPI?.sendExecutionConfirm(inputId, action, message);
+    window.electronAPI?.sendExecutionPlanResponse(inputId, action, assignments, message);
   }, []);
 
   // ==========================================
@@ -154,6 +157,9 @@ const App: React.FC = () => {
   }, []);
 
   const errorCount = logs.filter(l => l.type === 'error').length;
+  // Hide the activity log entirely until the agent actually starts organizing —
+  // nothing to show before that, and it keeps the welcome screen uncluttered.
+  const showLogPanel = hasStarted && logPanelVisible;
 
   return (
     <div className="flex flex-col h-screen bg-white overflow-hidden">
@@ -166,36 +172,38 @@ const App: React.FC = () => {
 
         {/* Center title */}
         <div className="titlebar-no-drag flex items-center gap-2">
-          <span className="text-sm font-semibold text-[#1c1917]">File Assist</span>
+          <span className="text-sm font-semibold text-[#1c1917]" style={{ fontFamily: 'var(--font-display)' }}>File Assist</span>
           {hasStarted && <StageBadge stage={stage} size="sm" />}
         </div>
 
         {/* Right: Log panel toggle */}
         <div className="titlebar-no-drag flex items-center">
-          <button
-            id="toggle-log-panel"
-            onClick={() => setLogPanelVisible(v => !v)}
-            title={logPanelVisible ? 'Hide activity log' : 'Show activity log'}
-            className={`
-              flex items-center gap-1.5 px-2.5 py-1 rounded-md text-xs font-medium
-              transition-colors duration-150
-              ${logPanelVisible
-                ? 'bg-[#fdf1ec] text-[#c2613d] border border-[#e8cab8]'
-                : 'text-[#78716c] hover:text-[#1c1917] hover:bg-[#f5f5f4]'
-              }
-            `}
-          >
-            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-              <rect x="3" y="3" width="18" height="18" rx="2"/>
-              <line x1="9" y1="3" x2="9" y2="21"/>
-            </svg>
-            Log
-            {errorCount > 0 && (
-              <span className="bg-red-100 text-red-600 text-[9px] px-1 py-px rounded font-bold">
-                {errorCount}
-              </span>
-            )}
-          </button>
+          {hasStarted && (
+            <button
+              id="toggle-log-panel"
+              onClick={() => setLogPanelVisible(v => !v)}
+              title={logPanelVisible ? 'Hide activity log' : 'Show activity log'}
+              className={`
+                flex items-center gap-1.5 px-2.5 py-1 rounded-md text-xs font-medium
+                transition-colors duration-150
+                ${logPanelVisible
+                  ? 'bg-[#fdf1ec] text-[#c2613d] border border-[#e8cab8]'
+                  : 'text-[#78716c] hover:text-[#1c1917] hover:bg-[#f5f5f4]'
+                }
+              `}
+            >
+              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                <rect x="3" y="3" width="18" height="18" rx="2"/>
+                <line x1="9" y1="3" x2="9" y2="21"/>
+              </svg>
+              Log
+              {errorCount > 0 && (
+                <span className="bg-red-100 text-red-600 text-[9px] px-1 py-px rounded font-bold">
+                  {errorCount}
+                </span>
+              )}
+            </button>
+          )}
         </div>
       </div>
 
@@ -206,7 +214,7 @@ const App: React.FC = () => {
         <div
           className="flex-shrink-0 overflow-hidden"
           style={{
-            width: logPanelVisible ? `${chatWidth}%` : '100%',
+            width: showLogPanel ? `${chatWidth}%` : '100%',
             transition: isDragging.current ? 'none' : 'width 0.15s ease',
           }}
         >
@@ -216,27 +224,39 @@ const App: React.FC = () => {
             isThinking={isThinking}
             pendingFolderReview={pendingFolderReview}
             pendingScopeSelection={pendingScopeSelection}
-            pendingExecutionConfirm={pendingExecutionConfirm}
+            pendingExecutionPlan={pendingExecutionPlan}
             onFolderReviewSubmit={handleFolderReviewSubmit}
             onScopeSelectionSubmit={handleScopeSelectionSubmit}
-            onExecutionConfirmSubmit={handleExecutionConfirmSubmit}
+            onOpenExecutionPlan={() => setExecutionPlanModalOpen(true)}
             hasStarted={hasStarted}
             onStart={handleStart}
           />
         </div>
 
         {/* Draggable divider */}
-        {logPanelVisible && (
+        {showLogPanel && (
           <div className="split-divider" onMouseDown={handleDividerMouseDown} />
         )}
 
         {/* Log panel (includes Task List tab) */}
-        {logPanelVisible && (
+        {showLogPanel && (
           <div className="flex-1 overflow-hidden min-w-0">
-            <LogPanel logs={logs} todoList={todoList} isVisible={logPanelVisible} />
+            <LogPanel logs={logs} todoList={todoList} isVisible={showLogPanel} />
           </div>
         )}
       </div>
+
+      {/* Execution plan modal — covers the full app window so the Kanban board gets maximum space */}
+      {pendingExecutionPlan && executionPlanModalOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-8">
+          <div className="w-full h-full max-w-5xl bg-white rounded-2xl shadow-2xl overflow-y-auto">
+            <ExecutionPlanPanel
+              request={pendingExecutionPlan}
+              onSubmit={handleExecutionPlanSubmit}
+            />
+          </div>
+        </div>
+      )}
     </div>
   );
 };

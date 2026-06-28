@@ -1,9 +1,85 @@
 import path from "path";
 import { fileAgentRecord, fileStatus } from "../src/state/fileAgentState.js";
+import type { fileAgentState, PlanScope, PlanScopeGroup, PlanFolderEntry, FolderPlanEntry } from "../src/state/fileAgentState.js";
 import { mkdir } from 'node:fs/promises';
 import { rename } from 'node:fs/promises'
 import { ErrorEncountered } from "./pipelineTools.js";
-import { emitAgentMessage, emitLog, requestExecutionConfirmation } from "../electron/ipcBridge.js";
+import { emitAgentMessage, emitLog, requestExecutionPlanConfirmation } from "../electron/ipcBridge.js";
+import type { ExecutionPlanFileAssignment } from "../electron/ipcBridge.js";
+
+/** Builds the full (untruncated) file list for one proposed folder, read from fileNewDestination ground truth. */
+function buildPlanFolderEntry(entry: FolderPlanEntry, files: fileStatus[]): PlanFolderEntry {
+    const resolvedFolder = path.resolve(entry.folder);
+    const matched = files.filter(f => f.fileNewDestination === resolvedFolder);
+    return {
+        category: entry.category,
+        folder: entry.folder,
+        files: matched.map(f => ({ fileName: f.fileName, fileSize: f.fileSize }))
+    };
+}
+
+/** Transforms the current finalized state into the editable plan payload sent to the renderer. */
+function buildExecutionPlanRequest(state: fileAgentState): { scopes: PlanScopeGroup[]; unassignedCount: number } {
+    const scopes: PlanScopeGroup[] = [];
+
+    const docTask = state.todoList.find(t => t.subTasks && t.subTasks.length > 0);
+    if (docTask?.subTasks?.length) {
+        const extensionGroups = [];
+        for (const sub of docTask.subTasks) {
+            const planEntries = state.proposedFolderPlan[sub.extension] ?? [];
+            const files = state.fileByExtension[sub.extension] ?? [];
+            const folders = planEntries.map(entry => buildPlanFolderEntry(entry, files));
+            if (folders.length) extensionGroups.push({ extension: sub.extension, folders });
+        }
+        if (extensionGroups.length) scopes.push({ scope: 'documents', extensionGroups });
+    }
+
+    for (const task of state.todoList) {
+        if (task.subTasks?.length) continue; // already handled above as documents
+        const planEntries = state.proposedFolderPlan[`__task_${task.id}`];
+        if (!planEntries?.length) continue;
+        const isImages = task.extensionList.every(ext => state.categorySummary.images.includes(ext));
+        const allFiles = task.extensionList.flatMap(ext => state.fileByExtension[ext] ?? []);
+        const folders = planEntries.map(entry => buildPlanFolderEntry(entry, allFiles));
+        if (folders.length) scopes.push({ scope: isImages ? 'images' : 'non-documents', folders });
+    }
+
+    const unassignedCount = state.fileListData.filter(f => f.planConfirmed === false).length;
+    return { scopes, unassignedCount };
+}
+
+/** Resolves the base folder convention for a scope, matching the Finalize tools' own path construction exactly. */
+function resolveBaseFolder(workspacePath: string, scope: PlanScope, extension?: string): string {
+    if (scope === 'documents') return path.join(workspacePath, (extension ?? '').replace('.', ''));
+    if (scope === 'images') return path.join(workspacePath, 'Images');
+    return workspacePath; // non-documents
+}
+
+/** Folder names from the renderer must always be a single path segment — never a path, never traversal. */
+function sanitizeFolderName(name: string): string {
+    return name.replace(/[\\/]/g, '_').replace(/\.\./g, '_').trim();
+}
+
+/**
+ * Applies the user's edited plan onto state, reconstructing and re-validating every destination
+ * path server-side. The renderer only ever sends bare folder names — never absolute paths.
+ */
+function applyExecutionPlanResponse(state: fileAgentState, assignments: ExecutionPlanFileAssignment[]): void {
+    const resolvedWorkspace = path.resolve(state.workspacePath);
+
+    for (const a of assignments) {
+        const file = state.fileRecord[a.fileName];
+        if (!file) continue; // defensive — never trust renderer-sourced names blindly
+
+        const baseFolder = resolveBaseFolder(resolvedWorkspace, a.scope, a.extension);
+        const candidate = path.resolve(path.join(baseFolder, sanitizeFolderName(a.folderName)));
+        if (!candidate.startsWith(resolvedWorkspace)) continue; // containment check, mirrors Finalize tools' existing pattern
+
+        file.category = a.category;
+        file.fileNewDestination = candidate;
+        file.planConfirmed = true;
+    }
+}
 
 const getFinalPlanConfirmation = ({
     description: "Prints the complete proposed file movement plan to the UI and asks the user for confirmation. Call this ONLY after finalizing all folders for all extensions. The LLM will receive the user's response to either proceed or make changes.",
@@ -25,26 +101,19 @@ const getFinalPlanConfirmation = ({
         const state = fileAgentRecord[params.ProcessId];
         if (!state) return "Error: Invalid ProcessId.";
 
-        // Group all finalized files by destination folder
-        const plan: Record<string, string[]> = {};
-        let unassignedCount = state.fileListData.filter(files => files.planConfirmed == false).length;
-
-        const planConfirmedFiles = state.fileListData.filter(files => files.planConfirmed == true && files.fileNewDestination !== "");
-        for(const file of planConfirmedFiles){
-            if (!plan[file.fileNewDestination]){
-                plan[file.fileNewDestination] = [];
-            }
-            plan[file.fileNewDestination]?.push(file.fileName);
-        }
+        const { scopes, unassignedCount } = buildExecutionPlanRequest(state);
 
         emitAgentMessage(params.statusMessage);
 
-        // Ask the user for confirmation via the structured execution-confirm panel
-        const response = await requestExecutionConfirmation(plan, unassignedCount);
+        // Ask the user for confirmation via the structured, editable execution plan panel
+        const response = await requestExecutionPlanConfirmation(scopes, unassignedCount);
 
         if (response.action === 'approve') {
+            applyExecutionPlanResponse(state, response.assignments ?? []);
             state.planConfirmed = true;
-            state.planConfirmedFiles = planConfirmedFiles;
+            state.planConfirmedFiles = state.fileListData.filter(
+                f => f.planConfirmed === true && f.fileNewDestination !== ""
+            );
             emitAgentMessage("Got it — moving your files now...");
             return "User confirmed the plan exactly as is. You may proceed to create the folders and execute the move plan.";
         } else {
