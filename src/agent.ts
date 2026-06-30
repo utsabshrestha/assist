@@ -103,7 +103,13 @@ export class FileAgent {
                 forceToolUse: true
             });
         }
-        if (errorEncountered) return;
+        const filePlanedConfirmed = state.fileListData.filter(
+                f => f.planConfirmed === true && f.fileNewDestination !== ""
+            );
+
+        const failedTask = state.todoList.filter(task => task.status === 'failed');
+        if (errorEncountered || failedTask.length > 0 || filePlanedConfirmed.length == 0) return;
+
 
         // ==========================================
         // STAGE 3: Execution Agent

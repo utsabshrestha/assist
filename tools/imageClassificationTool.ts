@@ -1,6 +1,6 @@
 import { LLMService } from "../src/LLMService.js";
 import { EmbeddingService } from "../src/EmbeddingService.js";
-import { ClassificationUtility } from "../src/utils/classificationUtility.js";
+import { ClassificationUtility, extractTaggedOutput, repairTaggedOutput } from "../src/utils/classificationUtility.js";
 import { getLowResBase64Image } from "../src/utils/imageUtility.js";
 import { fileCategorizationPrompt, imageDescriptionPrompt } from "../src/prompt/fileAgent.js";
 import * as path from 'path';
@@ -110,6 +110,7 @@ export class ImageClassificationTool {
             const clusterResult = await ClassificationUtility.clusterEmbeddings(embeddings);
             const labels = clusterResult.labels;
             const representatives = clusterResult.representatives;
+            const outlierCounts = clusterResult.outlierCounts;
 
             // Group filenames by cluster label
             const clusters: Record<number, string[]> = {};
@@ -136,19 +137,37 @@ export class ImageClassificationTool {
                     // Noise / Unclassified images
                     result['Uncategorized'] = (result['Uncategorized'] || []).concat(fileNames);
                 } else {
-                    // Get descriptions of representative files for this cluster
+                    // Get descriptions of representative files for this cluster, tagged by
+                    // distance-to-centroid position — see fileClassificationTool.ts.
                     const repIndices = representatives[label.toString()] || [];
-                    const repDescriptions = repIndices.map(idx => descriptions[idx]);
+                    const repDescriptions = repIndices.map((idx, i) => {
+                        const positionTag = ClassificationUtility.describeRepresentativePosition(i, repIndices.length);
+                        return `[${positionTag}]\n${descriptions[idx]}`;
+                    });
                     const contentToLLM = repDescriptions.length > 0
                         ? repDescriptions.join('\n\n')
                         : fileNames.join('\n');
 
-                    const prompt = `These are descriptions of images that belong to the same visual group:\n${contentToLLM}\n\nFolder name:`;
+                    // See fileClassificationTool.ts — representatives are a sample of a
+                    // potentially larger cluster; list full membership so the model can
+                    // broaden the name instead of naming only what it was shown.
+                    const allFilesNote = fileNames.length > repIndices.length
+                        ? `\n\nAll ${fileNames.length} files in this group: ${fileNames.join(', ')}`
+                        : '';
+
+                    // See fileClassificationTool.ts — surfaces cluster density as evidence
+                    // for the prompt's "do any files break the theme" check.
+                    const outlierCount = outlierCounts[label.toString()] || 0;
+                    const outlierNote = outlierCount > 0
+                        ? `\n\nNote: ${outlierCount} of ${fileNames.length} images in this group sit notably farther from the group's center than the rest — they may be off-theme.`
+                        : '';
+
+                    const prompt = `These are descriptions of images that belong to the same visual group:\n${contentToLLM}${allFilesNote}${outlierNote}\n\nFolder name:`;
 
                     const response = await llmService.openai.chat.completions.create({
                         model: llmService.modelName,
                         messages: [
-                            { role: "system", content: sysprompt + "\n\nRespond ONLY with a valid JSON object containing a 'category_name' string property." },
+                            { role: "system", content: sysprompt },
                             { role: "user", content: prompt }
                         ],
                         temperature: 0.2,
@@ -157,38 +176,33 @@ export class ImageClassificationTool {
                         // room to finish reasoning over denser clusters before answering.
                         // @ts-ignore - llama.cpp passthrough extra, not in the OpenAI SDK types
                         cache_prompt: false,
-                        max_tokens: 800,
+                        max_tokens: 1800,
+                        // See fileClassificationTool.ts: 1.1 instead of 1.3, since the higher
+                        // value fought the reasoning trace's natural repetition and made the
+                        // model less likely to close the <output> tag consistently.
                         // @ts-ignore - llama.cpp's OpenAI-compatible server accepts repeat_penalty as a passthrough extra
-                        repeat_penalty: 1.3,
-                        response_format: {
-                            type: "json_schema",
-                            json_schema: {
-                                name: "category",
-                                strict: true,
-                                schema: {
-                                    type: "object",
-                                    properties: {
-                                        category_name: { type: "string" }
-                                    },
-                                    required: ["category_name"],
-                                    additionalProperties: false
-                                }
-                            }
-                        }
+                        repeat_penalty: 1.1,
+                        // No JSON schema enforced — see fileClassificationTool.ts: forcing JSON
+                        // commits the model to an answer token-by-token with no room to reason
+                        // first. The prompt has it reason freely, then emit the folder name
+                        // inside <output>...</output>.
                     });
 
                     const message: any = response.choices[0]?.message;
-                    let rawOutput = message?.content || "";
-                    let folderName = `Image_Category_${label}`;
+                    // Raw request/response, kept on a separate 'tool_call'-typed log so it's
+                    // filterable independently from the human-readable summary below — for
+                    // debugging the prompt/model, not for end-user visibility.
+                    emitLog(`Image cluster ${label} prompt:\n${prompt}\n\nRaw model output:\n${JSON.stringify(message, null, 2)}`, 'tool_call', 'Clustering');
 
-                    try {
-                        const parsed = JSON.parse(rawOutput);
-                        if (parsed.category_name) {
-                            folderName = parsed.category_name;
-                        }
-                    } catch {
-                        const fallbackText = rawOutput || message?.reasoning_content || "";
-                        folderName = fallbackText.replace(/<think>[\s\S]*?<\/think>/g, '').trim() || folderName;
+                    let folderName = extractTaggedOutput(message);
+                    if (!folderName) {
+                        // See fileClassificationTool.ts — finish_reason distinguishes a
+                        // max_tokens cutoff from a forgotten closing tag, before trying the
+                        // repair call.
+                        const finishReason = response.choices[0]?.finish_reason;
+                        const rawText = message?.content || message?.reasoning_content || "";
+                        emitLog(`Image cluster ${label}: no <output> tag found (finish_reason=${finishReason}, ${rawText.length} chars), attempting repair`, 'tool_result', 'Clustering');
+                        folderName = await repairTaggedOutput(rawText, llmService) || `Image_Category_${label}`;
                     }
 
                     // Clean the name
@@ -198,7 +212,24 @@ export class ImageClassificationTool {
                         cleanFolderName = `Image_Category_${label}`;
                     }
 
-                    emitLog(`Image cluster ${label} (${fileNames.length} files) → "${cleanFolderName}"`, 'tool_result', 'Clustering');
+                    // Human-readable summary: which images drove the name and why, so a user
+                    // can relate the result back to their own files, and a technical viewer
+                    // can see the model's actual reasoning (not just the final name).
+                    const reasoningPreview = (message?.content || message?.reasoning_content || "")
+                        .replace(/<output>[\s\S]*?<\/output>/i, '')
+                        .trim();
+                    const basedOnFiles = repIndices
+                        .map(idx => filePaths[idx])
+                        .filter((p): p is string => p !== undefined)
+                        .map(p => path.basename(p))
+                        .join(', ');
+                    emitLog(
+                        `Image cluster ${label} (${fileNames.length} files) → "${cleanFolderName}"\n` +
+                        `Based on: ${basedOnFiles}\n` +
+                        `Reasoning: ${reasoningPreview || '(none — name was repaired from incomplete output)'}`,
+                        'tool_result',
+                        'Clustering'
+                    );
 
                     result[cleanFolderName] = (result[cleanFolderName] || []).concat(fileNames);
                 }

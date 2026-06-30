@@ -76,6 +76,61 @@ JSON:`;
     }
 }
 
+/**
+ * Extracts the model's final answer from a chat message that reasons in free text
+ * before emitting <output>...</output>. Falls back to best-effort cleanup (stripping
+ * <think>/<output> scaffolding) if the model never closed the tag, since reasoning
+ * models inconsistently keep chain-of-thought in `content` vs. `reasoning_content`.
+ */
+export function extractTaggedOutput(message: { content?: string; reasoning_content?: string } | undefined): string {
+    const text = message?.content || message?.reasoning_content || "";
+    const match = text.match(/<output>([\s\S]*?)<\/output>/i);
+    if (match) return match[1].trim();
+    return text.replace(/<think>[\s\S]*?<\/think>/gi, '').replace(/<output>/gi, '').trim();
+}
+
+/**
+ * Last-resort recovery when the model rambled without ever closing <output> (common
+ * with small reasoning models that lose track of formatting over long chains of thought).
+ * Feeds its own text back with a terse "just extract the name" instruction rather than
+ * silently falling back to a generic Category_N name. Returns null if the repair attempt
+ * also fails to produce a tagged name — callers should fall back to a generic name then.
+ */
+export async function repairTaggedOutput(rawText: string, llmService: LlmChatClient): Promise<string | null> {
+    if (!rawText.trim()) return null;
+
+    try {
+        const response = await llmService.openai.chat.completions.create({
+            model: llmService.modelName,
+            messages: [
+                {
+                    role: "system",
+                    content: "You extract a folder name from another model's leftover output. Respond with ONLY the folder name wrapped in <output></output> tags. Nothing else."
+                },
+                {
+                    role: "user",
+                    content: `Leftover output (it never closed its <output> tag):\n${rawText}\n\nExtract the folder name it was converging on, in Title_Case_With_Underscores, 1-4 words. Respond with <output>Name</output> only.`
+                }
+            ],
+            temperature: 0,
+            // @ts-ignore - llama.cpp passthrough extra, not in the OpenAI SDK types
+            cache_prompt: false,
+            // Tight budget — this is extraction, not reasoning. A reasoning model given
+            // room here will start re-reasoning instead of just answering.
+            max_tokens: 60,
+            // @ts-ignore - llama.cpp's OpenAI-compatible server accepts repeat_penalty as a passthrough extra
+            repeat_penalty: 1.1,
+        });
+
+        const message: any = response.choices[0]?.message;
+        const repaired = extractTaggedOutput(message);
+        return repaired || null;
+    } catch (e) {
+        console.error("Error during folder name repair pass:", e);
+        return null;
+    }
+}
+
 export class ClassificationUtility {
 
     /**
@@ -131,10 +186,10 @@ export class ClassificationUtility {
      * Returns an array of cluster labels corresponding to each embedding.
      * A label of -1 indicates "noise" (no cluster).
      */
-    public static async clusterEmbeddings(embeddings: number[][]): Promise<{ labels: number[], representatives: Record<string, number[]> }> {
+    public static async clusterEmbeddings(embeddings: number[][]): Promise<{ labels: number[], representatives: Record<string, number[]>, outlierCounts: Record<string, number> }> {
         return new Promise((resolve, reject) => {
             if (!embeddings || embeddings.length === 0) {
-                return resolve({ labels: [], representatives: {} });
+                return resolve({ labels: [], representatives: {}, outlierCounts: {} });
             }
 
             const scriptPath = path.resolve(process.cwd(), 'scripts/cluster.py');
@@ -164,7 +219,7 @@ export class ClassificationUtility {
                     }
                     if (Array.isArray(result)) {
                         // Backwards compatibility if python scripts returns array
-                        resolve({ labels: result, representatives: {} });
+                        resolve({ labels: result, representatives: {}, outlierCounts: {} });
                     } else {
                         resolve(result);
                     }
@@ -183,5 +238,18 @@ export class ClassificationUtility {
             pythonProcess.stdin.write(inputJson);
             pythonProcess.stdin.end();
         });
+    }
+
+    /**
+     * Labels a representative's position in the distance-to-centroid spread that
+     * cluster.py samples across (index 0 = Core/most typical, last index = Edge/most
+     * atypical). Mirrors the spread cluster.py computes via np.linspace so the label
+     * matches what was actually sampled.
+     */
+    public static describeRepresentativePosition(index: number, total: number): string {
+        if (total <= 1) return 'Core';
+        if (index === 0) return 'Core';
+        if (index === total - 1) return 'Edge';
+        return `Mid-${index}`;
     }
 }

@@ -10,7 +10,11 @@ DEFAULT_THRESHOLD = 0.35
 MIN_SAMPLES_FOR_ADAPTIVE = 5
 PERCENTILE = 17.5
 MIN_CLUSTER_SIZE = 2
-REASSIGN_TOLERANCE_MULTIPLIER = 1.5
+REASSIGN_TOLERANCE_MULTIPLIER = 1.0
+MAX_CLUSTERS = 15
+MAX_REPRESENTATIVES = 8
+REPRESENTATIVES_PER_FILES = 10
+OUTLIER_DISTANCE_MULTIPLIER = 1.5
 
 def compute_adaptive_threshold(X):
     """Derive a distance_threshold from the corpus's own pairwise cosine distance
@@ -26,8 +30,11 @@ def compute_adaptive_threshold(X):
 
 def reassign_small_clusters(X, labels, threshold):
     """Clusters smaller than MIN_CLUSTER_SIZE are too small to be a meaningful category.
-    Merge them into their nearest neighboring cluster if it's a near-miss (within
-    tolerance of the threshold), otherwise mark them as noise (-1)."""
+    Merge them into their nearest neighboring cluster only if it's within the same
+    distance threshold Agglomerative itself used to decide what counts as related
+    (REASSIGN_TOLERANCE_MULTIPLIER=1.0) — not a looser tolerance, which previously let
+    genuine outliers (e.g. an unrelated business pitch near a cluster of ML papers, at
+    ~0.43 cosine distance) get glued onto a real cluster instead of staying noise (-1)."""
     labels = labels.copy()
     unique_labels, counts = np.unique(labels, return_counts=True)
     small_labels = unique_labels[counts < MIN_CLUSTER_SIZE]
@@ -53,6 +60,26 @@ def reassign_small_clusters(X, labels, threshold):
                 labels[idx] = large_labels[nearest_idx]
             else:
                 labels[idx] = -1
+
+    return labels
+
+def cap_cluster_count(X, labels, max_clusters):
+    """If clustering still produced more than max_clusters real clusters (e.g. on a
+    diverse corpus where many small-but-valid topic groups survive reassignment),
+    repeatedly merge the two closest clusters by centroid cosine distance until the
+    count is at or below the cap. Keeps the result user-digestible regardless of how
+    many distinct topics the adaptive threshold would otherwise resolve."""
+    labels = labels.copy()
+    unique_labels = [l for l in np.unique(labels) if l != -1]
+
+    while len(unique_labels) > max_clusters:
+        centroids = np.array([X[labels == lbl].mean(axis=0) for lbl in unique_labels])
+        dist_matrix = cdist(centroids, centroids, metric='cosine')
+        np.fill_diagonal(dist_matrix, np.inf)
+        i, j = np.unravel_index(np.argmin(dist_matrix), dist_matrix.shape)
+        lbl_a, lbl_b = unique_labels[i], unique_labels[j]
+        labels[labels == lbl_b] = lbl_a
+        unique_labels = [l for l in np.unique(labels) if l != -1]
 
     return labels
 
@@ -88,8 +115,10 @@ def main():
 
         labels = clusterer.fit_predict(X)
         labels = reassign_small_clusters(X, labels, threshold)
+        labels = cap_cluster_count(X, labels, MAX_CLUSTERS)
 
         representatives = {}
+        outlier_counts = {}
         for cluster_id in sorted(set(labels)):
             if cluster_id == -1:
                 continue
@@ -108,26 +137,36 @@ def main():
 
             # Sort by distance to get a distribution from center to edge
             sorted_local_indices = distances.argsort()
+            n = len(sorted_local_indices)
 
-            if len(sorted_local_indices) <= 4:
+            # A flat cap of 4 samples tells the LLM almost nothing about a 200-file
+            # cluster's true shape. Scale the sample count with cluster size (still capped,
+            # so the prompt doesn't blow up) and spread picks evenly across the distance
+            # distribution via linspace instead of fixed tertile positions.
+            sample_count = min(MAX_REPRESENTATIVES, max(4, n // REPRESENTATIVES_PER_FILES))
+
+            if n <= sample_count:
                 chosen_local_indices = sorted_local_indices
             else:
-                # Pick 4 diverse points across the distance distribution
-                n = len(sorted_local_indices)
-                chosen_local_indices = [
-                    sorted_local_indices[0],             # Central core
-                    sorted_local_indices[n // 3],        # Inner-middle distance
-                    sorted_local_indices[(2 * n) // 3],  # Outer-middle distance
-                    sorted_local_indices[-1]             # Outer edge
-                ]
+                spread_positions = np.linspace(0, n - 1, sample_count, dtype=int)
+                chosen_local_indices = sorted_local_indices[spread_positions]
 
             chosen_global_indices = cluster_indices[chosen_local_indices].tolist()
 
             representatives[str(cluster_id)] = chosen_global_indices
 
+            # Flag members sitting well past the typical in-cluster distance as outliers,
+            # so the LLM gets a density signal instead of a flat filename dump for large
+            # clusters where only a handful of the ~8 samples can show the full spread.
+            median_distance = float(np.median(distances))
+            outlier_threshold = median_distance * OUTLIER_DISTANCE_MULTIPLIER
+            outlier_local_indices = np.where(distances > outlier_threshold)[0]
+            outlier_counts[str(cluster_id)] = int(len(outlier_local_indices))
+
         output = {
             "labels": labels.tolist(),
-            "representatives": representatives
+            "representatives": representatives,
+            "outlierCounts": outlier_counts
         }
 
         # Output the result as JSON

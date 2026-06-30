@@ -26,7 +26,7 @@ export const HandOffToCategorizationAgent = ({
         if (!state) return "Error: Invalid ProcessId.";
 
         if (!state.todoList || state.todoList.length === 0) {
-            return "Error: Cannot hand off — the todo list is empty. Create a todo list first using ManageTodoListTool.";
+            return "Error: Cannot hand off — the todo list is empty. Create a todo list first using CreateTodoListTool.";
         }
 
         state.phase = 'categorization';

@@ -13,6 +13,25 @@ import type { CategorySummary } from "../src/state/fileAgentState.js";
  * build the todo list, record constraints, then hand off to Categorization Agent.
  */
 
+/** Matches transient files created by other apps (Office locks, swap files, OS metadata, partial downloads) so they're never treated as real files to organize. */
+function isTemporaryFile(name: string): boolean {
+    return (
+        name === '.DS_Store' ||
+        name === 'Thumbs.db' ||
+        name === 'desktop.ini' ||
+        name.startsWith('~$') ||           // MS Office lock files, e.g. ~$report.docx
+        name.startsWith('.~lock.') ||      // LibreOffice lock files, e.g. .~lock.report.odt#
+        /^\.goutputstream-/.test(name) ||  // GNOME gvfs temp files
+        /\.(swp|swo|swx)$/.test(name) ||   // vim swap files
+        /\.tmp$/i.test(name) ||
+        /\.crdownload$/i.test(name) ||     // Chrome in-progress download
+        /\.part$/i.test(name) ||           // Firefox in-progress download
+        /\.download$/i.test(name) ||       // Safari in-progress download
+        /^\.#/.test(name) ||               // Emacs lock files
+        /#$/.test(name)                    // Emacs/LibreOffice trailing-# temp files
+    );
+}
+
 /** Renders the scanned category/extension/count breakdown as plain text for the LLM to read. */
 function formatCategoryBreakdown(categories: CategorySummary, countByExt: Record<string, number>): string {
     return (['documents', 'images', 'non-documents'] as const)
@@ -58,7 +77,7 @@ const GetFolderSummaryTool = ({
             state.workspacePath = params.path;
             const entries = await fs.readdir(state.workspacePath, { withFileTypes: true });
             const files = entries
-                .filter((e: Dirent) => e.isFile())
+                .filter((e: Dirent) => e.isFile() && !isTemporaryFile(e.name))
                 .sort((a: Dirent, b: Dirent) => a.name.localeCompare(b.name));
             let totalFileSize: number = 0;
 
@@ -239,20 +258,15 @@ const MemoryScratchpadTool = ({
     }
 });
 
-const ManageTodoListTool = ({
-    description: "Manages the To-Do list. Use 'create', 'update_task', or 'view' to track files and processing state.",
+const CreateTodoListTool = ({
+    description: "Creates the To-Do list, replacing any existing list. Use this once after the scope of work is known.",
     params: {
         type: "object",
         properties: {
             ProcessId: { type: "string" },
-            action: {
-                type: "string",
-                enum: ["create", "update_task", "view"],
-                description: "The operation to perform. 'create' replaces the list, 'update_task' modifies one item, 'view' returns current status."
-            },
             todoList: {
                 type: "array",
-                description: "Used ONLY when action is 'create'. The full list of tasks.",
+                description: "The full list of tasks.",
                 items: {
                     type: "object",
                     properties: {
@@ -260,10 +274,10 @@ const ManageTodoListTool = ({
                         title: { type: "string", description: "Task description, e.g. 'Organize .pdf files'" },
                         status: { type: "string", enum: ["not-started", "in-progress", "completed", "failed", "blocked"] },
                         notes: { type: "string", description: "Any notes for this task." },
-                        extensionList: { 
-                            type: "array", 
+                        extensionList: {
+                            type: "array",
                             description: "Include list of extensions for the task to be organized. eg : ['.pdf', '.docx', '.txt']",
-                            itesm: {
+                            items: {
                                 type: "string",
                                 description: "extension to be organized, eg: .pdf"
                             }
@@ -272,75 +286,92 @@ const ManageTodoListTool = ({
                     required: ["id", "title", "status", "extensionList"]
                 }
             },
-            taskId: { type: "number", description: "Used ONLY when action is 'update_task'. The ID of the task to update." },
-            status: { type: "string", enum: ["not-started", "in-progress", "completed", "failed", "blocked"], description: "Used ONLY when action is 'update_task'. The new status." },
-            notes: { type: "string", description: "Optional notes when updating a task." },
             statusMessage: {
                 type: "string",
                 description: "A short, friendly first-person message telling the user what you're about to do, e.g. 'Creating a todo list for your files...'. This will be shown directly to the user."
             }
         },
-        required: ["ProcessId", "action", "todoList", "statusMessage"]
+        required: ["ProcessId", "todoList", "statusMessage"]
     },
-    async handler(params: {ProcessId: string, taskId: number, action: string, notes: string, status: string, todoList: any, statusMessage: string}): Promise<string> {
-        emitLog(`ManageTodoListTool (Action: ${params.action})`, 'tool_call', 'ManageTodoListTool');
+    async handler(params: {ProcessId: string, todoList: any, statusMessage: string}): Promise<string> {
+        emitLog(`CreateTodoListTool`, 'tool_call', 'CreateTodoListTool');
         emitAgentMessage(params.statusMessage);
         const state = fileAgentRecord[params.ProcessId];
         if (!state) return "Error: Invalid ProcessId.";
-        
-        if (params.action === "create") {
-            if (!params.todoList) return "Error: todoList is required for 'create' action.";
-            state.todoList = params.todoList as any[];
-            emitAgentMessage(`Created ${state.todoList.length} task${state.todoList.length === 1 ? '' : 's'}: ${state.todoList.map(t => t.title).join(', ')}`, 'task_update');
-        } else if (params.action === "update_task") {
-            if (params.taskId === undefined || !params.status) return "Error: taskId and status are required for 'update_task' action.";
-            const task = state.todoList.find(t => t.id === params.taskId);
-            if (!task) return `Error: Task with id ${params.taskId} not found.`;
-            task.status = params.status as any;
-            if (params.notes) task.notes = params.notes;
-            emitAgentMessage(`${task.title} → ${params.status}`, 'task_update', `task_${params.ProcessId}_${params.taskId}`);
-        }
 
-        if (params.action === "create" || params.action === "update_task") {
+        if (!params.todoList) return "Error: todoList is required.";
+        state.todoList = params.todoList as any[];
+        emitAgentMessage(`Created ${state.todoList.length} task${state.todoList.length === 1 ? '' : 's'}: ${state.todoList.map(t => t.title).join(', ')}`, 'task_update');
+        emitTodoUpdate(state.todoList);
+
+        return JSON.stringify({ todoList: state.todoList });
+    }
+});
+
+const ViewOrUpdateTodoListTool = ({
+    description: "View or update the To-Do list. Call with no 'updates' to view the full current list with all details. Pass 'updates' (one or more task id + status pairs) to update tasks without needing to resend the full list.",
+    params: {
+        type: "object",
+        properties: {
+            ProcessId: { type: "string" },
+            updates: {
+                type: "array",
+                description: "Omit to just view the list. Provide one or more updates to apply, each identifying a task by id.",
+                items: {
+                    type: "object",
+                    properties: {
+                        taskId: { type: "number", description: "The ID of the task to update." },
+                        status: { type: "string", enum: ["not-started", "in-progress", "completed", "failed", "blocked"], description: "The new status for this task." },
+                        notes: { type: "string", description: "Optional notes for this task." }
+                    },
+                    required: ["taskId", "status"]
+                }
+            },
+            statusMessage: {
+                type: "string",
+                description: "A short, friendly first-person message telling the user what you're about to do, e.g. 'Updating your task list...'. This will be shown directly to the user."
+            }
+        },
+        required: ["ProcessId", "statusMessage"]
+    },
+    async handler(params: {ProcessId: string, updates?: { taskId: number, status: string, notes?: string }[], statusMessage: string}): Promise<string> {
+        emitLog(`ViewOrUpdateTodoListTool (updates: ${params.updates?.length ?? 0})`, 'tool_call', 'ViewOrUpdateTodoListTool');
+        emitAgentMessage(params.statusMessage);
+        const state = fileAgentRecord[params.ProcessId];
+        if (!state) return "Error: Invalid ProcessId.";
+
+        if (params.updates && params.updates.length > 0) {
+            for (const update of params.updates) {
+                const task = state.todoList.find(t => t.id === update.taskId);
+                if (!task) return `Error: Task with id ${update.taskId} not found.`;
+                task.status = update.status as any;
+                if (update.notes) task.notes = update.notes;
+                emitAgentMessage(`${task.title} → ${update.status}`, 'task_update', `task_${params.ProcessId}_${update.taskId}`);
+            }
             emitTodoUpdate(state.todoList);
         }
 
         if ((!state.todoList || state.todoList.length === 0) && state.globalNotes.length === 0) return "Todo list and notes are empty.";
 
-        let summary = "";
-        if (state.globalNotes && state.globalNotes.length > 0) {
-            summary += "🧠 Persistent Notes & Thoughts:\n- " + state.globalNotes.join('\n- ') + "\n\n";
-        }
-
-        summary += "📋 Current Todo List:\n";
-        if (state.todoList && state.todoList.length > 0) {
-            for (const item of state.todoList) {
-                let icon = '⏳';
-                if (item.status === 'completed') icon = '✅';
-                else if (item.status === 'in-progress') icon = '🔄';
-                else if (item.status === 'failed') icon = '❌';
-                else if (item.status === 'blocked') icon = '🚧';
-
-                const taskNotes = item.notes ? ` - Notes: ${item.notes}` : "";
-                summary += `${icon} [${item.id}] ${item.title} (${item.status})${taskNotes}\n`;
-            }
-        } else {
-            summary += "(Empty list)\n";
-        }
-        return summary;
+        return JSON.stringify({
+            globalNotes: state.globalNotes,
+            todoList: state.todoList
+        });
     }
 });
 
 
 export {
-    ManageTodoListTool,
+    CreateTodoListTool,
+    ViewOrUpdateTodoListTool,
     MemoryScratchpadTool
 };
 
 export const PlanningTools = {
     GetFolderSummaryTool,
     PresentScopeSelectionTool,
-    ManageTodoListTool,
+    CreateTodoListTool,
+    ViewOrUpdateTodoListTool,
     MemoryScratchpadTool,
     HandOffToCategorizationAgent,
     ErrorEncountered

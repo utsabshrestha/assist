@@ -1,6 +1,6 @@
 import { LLMService } from "../src/LLMService.js";
 import { EmbeddingService } from "../src/EmbeddingService.js";
-import { ClassificationUtility } from "../src/utils/classificationUtility.js";
+import { ClassificationUtility, extractTaggedOutput, repairTaggedOutput } from "../src/utils/classificationUtility.js";
 import { FileContentExtractor } from "../src/utils/fileContentExtractor.js";
 import * as path from 'path';
 import { OpenAISession, workerAgent } from "../src/workerAgent.js";
@@ -50,6 +50,7 @@ export class FileClassificationTool {
             const clusterResult = await ClassificationUtility.clusterEmbeddings(embeddings);
             const labels = clusterResult.labels;
             const representatives = clusterResult.representatives;
+            const outlierCounts = clusterResult.outlierCounts;
             
             // Group filenames by cluster label
             const clusters: Record<number, string[]> = {};
@@ -78,70 +79,70 @@ export class FileClassificationTool {
                     result['Uncategorized'] = (result['Uncategorized'] || []).concat(fileNames);
                 }
                 else {
-                    // Get snippets of representative files
+                    // Get snippets of representative files, tagged by distance-to-centroid
+                    // position (Core = most typical, Edge = most atypical) so the model can
+                    // weigh a lone Edge sample differently than a Core one instead of treating
+                    // all samples as equally representative of the cluster.
                     const repIndices = representatives[label.toString()] || [];
-                    const repContents = repIndices.map(idx => contents[idx]);
+                    const repContents = repIndices.map((idx, i) => {
+                        const positionTag = ClassificationUtility.describeRepresentativePosition(i, repIndices.length);
+                        return `[${positionTag}]\n${contents[idx]}`;
+                    });
                     const contentToLLM = repContents.length > 0 ? repContents.join('\n\n') : fileNames.join('\n');
-                    
+
+                    const allFilesNote = fileNames.length > repIndices.length
+                        ? `\n\nAll ${fileNames.length} files in this group: ${fileNames.join(', ')}`
+                        : '';
+
+                    // Surface cluster density so the model has actual evidence for "do any
+                    // files break the theme" instead of guessing from a handful of samples —
+                    // most useful on large clusters where only ~8 of many files were shown.
+                    const outlierCount = outlierCounts[label.toString()] || 0;
+                    const outlierNote = outlierCount > 0
+                        ? `\n\nNote: ${outlierCount} of ${fileNames.length} files in this group sit notably farther from the group's center than the rest — they may be off-theme.`
+                        : '';
+
                     // Ask LLM to name the folder based on the file contents
                     const prompt = `Files to categorize:
-                            ${contentToLLM}
+                            ${contentToLLM}${allFilesNote}${outlierNote}
 
                             Folder name:`;
 
                     const response = await llmService.openai.chat.completions.create({
                         model: llmService.modelName,
                         messages: [
-                            { role: "system", content: sysprompt + "\n\nRespond ONLY with a valid JSON object containing a 'category_name' string property." },
+                            { role: "system", content: sysprompt },
                             { role: "user", content: prompt }
                         ],
                         temperature: 0.2,
-                        // Avoids sharing a KV cache slot with the concurrently running agentic
-                        // worker session (llama-server has 4 parallel slots) — cheap hygiene,
-                        // though confirmed NOT the cause of the empty-content failures below.
                         // @ts-ignore - llama.cpp passthrough extra, not in the OpenAI SDK types
                         cache_prompt: false,
-                        // Ministral genuinely reasons over some clusters (denser/more abstract
-                        // academic content reliably triggers it — confirmed via reasoning_content
-                        // inspection) and needs real room to finish before answering. A low cap
-                        // truncates mid-thought with finish_reason:"length" and empty content,
-                        // which is worse than just being slow. 800 gives it space to complete.
-                        //max_tokens: 1800,
+                        max_tokens: 1800,
+                        // 1.3 fought the reasoning trace's natural repetition (e.g. "this file is
+                        // about...") and made the model less likely to close the <output> tag
+                        // consistently. 1.1 still discourages loops without that side effect.
                         // @ts-ignore - llama.cpp's OpenAI-compatible server accepts repeat_penalty as a passthrough extra
-                        repeat_penalty: 1.3,
-                        response_format: {
-                            type: "json_schema",
-                            json_schema: {
-                                name: "category",
-                                strict: true,
-                                schema: {
-                                    type: "object",
-                                    properties: {
-                                        category_name: { type: "string" }
-                                    },
-                                    required: ["category_name"],
-                                    additionalProperties: false
-                                }
-                            }
-                        }
+                        repeat_penalty: 1.1,
                     });
 
                     const message: any = response.choices[0]?.message;
-                    let rawOutput = message?.content || "";
-                    let folderName = `Category_${label}`;
+                    // Raw request/response, kept on a separate 'tool_call'-typed log so it's
+                    // filterable independently from the human-readable summary below — for
+                    // debugging the prompt/model, not for end-user visibility.
+                    emitLog(`Cluster ${label} prompt:\n${prompt}\n\nRaw model output:\n${JSON.stringify(message, null, 2)}`, 'tool_call', 'Clustering');
 
-                    try {
-                        const parsed = JSON.parse(rawOutput);
-                        if (parsed.category_name) {
-                            folderName = parsed.category_name;
-                        }
-                    } catch (e) {
-                        // Fallback if model somehow bypassed JSON schema, or got cut off
-                        // mid-reasoning (content empty, only reasoning_content populated).
-                        const fallbackText = rawOutput || message?.reasoning_content || "";
-                        folderName = fallbackText.replace(/<think>[\s\S]*?<\/think>/g, '').trim() || folderName;
+                    let folderName = extractTaggedOutput(message);
+                    if (!folderName) {
+                        // Distinguish "hit max_tokens mid-reasoning" (still rambling, needs a
+                        // bigger budget) from "stopped naturally but forgot the tag" (a
+                        // formatting slip the repair call below can usually fix) — same failure
+                        // symptom downstream, different root cause to tune against.
+                        const finishReason = response.choices[0]?.finish_reason;
+                        const rawText = message?.content || message?.reasoning_content || "";
+                        emitLog(`Cluster ${label}: no <output> tag found (finish_reason=${finishReason}, ${rawText.length} chars), attempting repair`, 'tool_result', 'Clustering');
+                        folderName = await repairTaggedOutput(rawText, llmService) || `Category_${label}`;
                     }
-                    
+
                     // Cleanup LLM output to grab just the first line/clean name
                     let cleanFolderName = folderName.trim().replace(/^["']|["']$/g, '').replace(/[/\\?%*:|"<>]/g, '-').split('\n')[0].trim();
 
@@ -149,7 +150,24 @@ export class FileClassificationTool {
                         cleanFolderName = `Category_${label}`;
                     }
 
-                    emitLog(`Cluster ${label} (${fileNames.length} files) → "${cleanFolderName}"`, 'tool_result', 'Clustering');
+                    // Human-readable summary: which files drove the name and why, so a user
+                    // can relate the result back to their own files, and a technical viewer
+                    // can see the model's actual reasoning (not just the final name).
+                    const reasoningPreview = (message?.content || message?.reasoning_content || "")
+                        .replace(/<output>[\s\S]*?<\/output>/i, '')
+                        .trim();
+                    const basedOnFiles = repIndices
+                        .map(idx => filePaths[idx])
+                        .filter((p): p is string => p !== undefined)
+                        .map(p => path.basename(p))
+                        .join(', ');
+                    emitLog(
+                        `Cluster ${label} (${fileNames.length} files) → "${cleanFolderName}"\n` +
+                        `Based on: ${basedOnFiles}\n` +
+                        `Reasoning: ${reasoningPreview || '(none — name was repaired from incomplete output)'}`,
+                        'tool_result',
+                        'Clustering'
+                    );
 
                     result[cleanFolderName] = (result[cleanFolderName] || []).concat(fileNames);
 

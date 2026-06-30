@@ -18,7 +18,7 @@ import { LLMService } from '../src/LLMService.js';
 import { documentWorkerAgentSystemPrompt, nonDocumentWorkerAgentSystemPrompt, imageWorkerAgentSystemPrompt } from '../src/prompt/fileAgent.js';
 import { GetCategoriesoffilesofspecificextension, GetCategoriesOfImages, UpdateCategoryNameTool, FinalizeThefolderforthefilesforEachExtensions, workerCompletionStatus, FinalizeThefolderforImages, FinalizeThefolderforNonDocuments, GetCategoriesForNonDocuments, UpdateCategoryNameForNonDocumentsTool, UpdateCategoryNameForImagesTool, PresentDocumentFolderPlanTool, PresentImageFolderPlanTool, PresentNonDocumentFolderPlanTool } from './fileCategorizationTools.js';
 import { ERROR_ENCOUNTERED, ErrorEncountered, HandOffToExecutionAgent } from '../tools/pipelineTools.js';
-import { ManageTodoListTool, MemoryScratchpadTool} from '../tools/planningAgentTools.js';
+import { ViewOrUpdateTodoListTool, MemoryScratchpadTool} from '../tools/planningAgentTools.js';
 import { emitLog, emitTodoUpdate, emitAgentMessage } from '../electron/ipcBridge.js';
 
 const DocumentCategorizationAgent = ({
@@ -284,7 +284,7 @@ const ImageCategorizationAgent = ({
 });
 
 export const CategorizationTools = {
-    ManageTodoListTool,
+    ViewOrUpdateTodoListTool,
     MemoryScratchpadTool,
     DocumentCategorizationAgent,
     NonDocumentCategorizationAgent,
