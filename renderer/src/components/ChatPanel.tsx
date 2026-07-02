@@ -1,6 +1,6 @@
-import React, { useEffect, useRef, useState, useCallback } from 'react';
+import React, { useEffect, useRef, useState, useCallback, useMemo } from 'react';
 import { ClipboardCheck } from 'lucide-react';
-import type { AgentStage, FolderReviewRequest, ScopeSelectionRequest, ExecutionPlanRequest, CategorySummary } from '../types/electron.js';
+import type { AgentMessage, AgentStage, FolderReviewRequest, ScopeSelectionRequest, ExecutionPlanRequest, CategorySummary } from '../types/electron.js';
 import type { TimelineRow } from '../App.js';
 import { TimelineEntry } from './TimelineEntry.js';
 import { StageProgressBar } from './StageProgressBar.js';
@@ -61,6 +61,24 @@ export const ChatPanel: React.FC<ChatPanelProps> = ({
 
   const pendingPanel = pendingFolderReview || pendingScopeSelection || pendingExecutionPlan;
   const latestIndex = timelineRows.length - 1;
+
+  // Only the first row of a contiguous run of same-stage 'agent' narration messages shows
+  // the agent name + stage badge header — later rows in the run just show a timestamp.
+  // Any non-agent row (pipeline milestone, system, task_update) breaks the run.
+  const showHeaderFlags = useMemo(() => {
+    let lastAgentStage: AgentStage | null = null;
+    return timelineRows.map(row => {
+      const isAgentMsg = row.kind === 'message' && (row.data as AgentMessage).type === 'agent';
+      if (!isAgentMsg) {
+        lastAgentStage = null;
+        return false;
+      }
+      const stage = (row.data as AgentMessage).stage;
+      const isFirst = stage !== lastAgentStage;
+      lastAgentStage = stage;
+      return isFirst;
+    });
+  }, [timelineRows]);
 
   return (
     <div className="flex flex-col h-full bg-white overflow-hidden">
@@ -141,6 +159,7 @@ export const ChatPanel: React.FC<ChatPanelProps> = ({
                 isLatest={i === latestIndex}
                 connectorActive={i === latestIndex && (isThinking || !pendingPanel)}
                 showConnector={i < timelineRows.length - 1 || isThinking || !!pendingPanel}
+                showHeader={showHeaderFlags[i]}
               />
             ))}
 

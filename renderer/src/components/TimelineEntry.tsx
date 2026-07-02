@@ -28,9 +28,11 @@ interface TimelineEntryProps {
   connectorActive: boolean;
   /** Whether to render a connector line below this row at all (false for the last row in the list). */
   showConnector: boolean;
+  /** Whether to show the agent name + stage badge header (only the first row of a same-stage run). */
+  showHeader: boolean;
 }
 
-export const TimelineEntry: React.FC<TimelineEntryProps> = ({ kind, data, isLatest, connectorActive, showConnector }) => {
+export const TimelineEntry: React.FC<TimelineEntryProps> = ({ kind, data, isLatest, connectorActive, showConnector, showHeader }) => {
   const time = new Date(data.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
 
   if (kind === 'tool_call') {
@@ -103,11 +105,17 @@ export const TimelineEntry: React.FC<TimelineEntryProps> = ({ kind, data, isLate
         )}
       </div>
       <div className="flex-1 min-w-0 pb-3">
-        <div className="flex items-center gap-2 mb-0.5">
-          <span className="text-[11px] font-semibold text-[#1c1917]">{agentName}</span>
-          <StageBadge stage={msg.stage} size="sm" />
-          <span className="text-[10px] text-[#a8a29e]">{time}</span>
-        </div>
+        {showHeader ? (
+          <div className="flex items-center gap-2 mb-0.5">
+            <span className="text-[11px] font-semibold text-[#1c1917]">{agentName}</span>
+            <StageBadge stage={msg.stage} size="sm" />
+            <span className="text-[10px] text-[#a8a29e]">{time}</span>
+          </div>
+        ) : (
+          <div className="mb-0.5">
+            <span className="text-[10px] text-[#a8a29e]">{time}</span>
+          </div>
+        )}
         <div className="prose-agent text-[13px] text-[#44403c] leading-relaxed selectable">
           <ReactMarkdown>{msg.content}</ReactMarkdown>
         </div>

@@ -2,7 +2,6 @@ import React, { useEffect, useState, useCallback, useRef, useMemo } from 'react'
 import type { AgentMessage, AgentLog, AgentStage, FolderReviewRequest, ScopeSelectionRequest, ExecutionPlanRequest, ExecutionPlanFileAssignment, CategorySummary, TodoItem } from './types/electron.js';
 import { ChatPanel } from './components/ChatPanel.js';
 import { LogPanel } from './components/LogPanel.js';
-import { StageBadge } from './components/StageBadge.js';
 import { ExecutionPlanPanel } from './components/ExecutionPlanPanel.js';
 
 export type TimelineRow =
@@ -173,7 +172,6 @@ const App: React.FC = () => {
         {/* Center title */}
         <div className="titlebar-no-drag flex items-center gap-2">
           <span className="text-sm font-semibold text-[#1c1917]" style={{ fontFamily: 'var(--font-display)' }}>File Assist</span>
-          {hasStarted && <StageBadge stage={stage} size="sm" />}
         </div>
 
         {/* Right: Log panel toggle */}
