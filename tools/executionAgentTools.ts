@@ -118,8 +118,15 @@ const getFinalPlanConfirmation = ({
             return "User confirmed the plan exactly as is. You may proceed to create the folders and execute the move plan.";
         } else {
             state.planConfirmed = false;
-            emitAgentMessage("Got it — let me adjust that...");
-            return `User did not confirm the plan. This is what user said about the plan : "${response.message ?? 'No reason given.'}". Please adjust the categories/folders as requested by the user using the Finalize tool again, or respond accordingly.`;
+            state.proposedFolderPlan = {};
+            state.planConfirmedFiles = [];
+            state.fileListData.forEach(file => {
+                file.category = "";
+                file.fileNewDestination = "";
+                file.planConfirmed = false;
+            });
+            emitAgentMessage("Organization process was declined. Clearing plan and canceling...");
+            return "User declined the plan. You MUST call the ExecutionDeclined tool immediately to cancel the process.";
         }
     }
 });
@@ -224,8 +231,27 @@ const Executetheprocess = ({
     }
 });
 
+const ExecutionDeclined = ({
+    description: "Call this tool ONLY when the user did not confirm the plan and declined the organization process. This signals that the process is canceled and terminates the pipeline cleanly.",
+    params: {
+        type: "object",
+        properties: {
+            ProcessId: {
+                type: "string",
+                description: "The unique process id for this session."
+            }
+        },
+        required: ["ProcessId"]
+    },
+    async handler(params: { ProcessId: string }): Promise<string> {
+        emitLog('Execution process declined by user. Terminating.', 'pipeline');
+        return "__Execution_Decline__";
+    }
+});
+
 export const ExecutionTools = {
     getFinalPlanConfirmation,
     Executetheprocess,
+    ExecutionDeclined,
     ErrorEncountered
 };

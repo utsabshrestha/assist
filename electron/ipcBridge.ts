@@ -98,7 +98,7 @@ export interface ExecutionPlanFileAssignment {
 /** Sent from renderer → main after the user clicks Approve or submits a change request. */
 export interface ExecutionPlanResponse {
   inputId: string;
-  action: 'approve' | 'message';
+  action: 'approve' | 'decline' | 'message';
   assignments?: ExecutionPlanFileAssignment[]; // populated when action === 'approve'
   message?: string; // populated when action === 'message'
 }

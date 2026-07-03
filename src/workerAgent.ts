@@ -99,6 +99,9 @@ export class OpenAISession {
                             else if (toolResultContent.startsWith("__ERROR_")) {
                                 return toolResultContent;
                             }
+                            else if (toolResultContent === "__Execution_Decline__") {
+                                return toolResultContent;
+                            }
                         } catch (e: any) {
                             const errMsg = `Error: ${e.message}`;
                             this.messages.push({

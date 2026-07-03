@@ -9,7 +9,8 @@ import type { ExecutionPlanRequest, ExecutionPlanFileAssignment, PlanScope, Plan
 
 interface ExecutionPlanPanelProps {
   request: ExecutionPlanRequest;
-  onSubmit: (inputId: string, action: 'approve' | 'message', assignments?: ExecutionPlanFileAssignment[], message?: string) => void;
+  onSubmit: (inputId: string, action: 'approve' | 'decline' | 'message', assignments?: ExecutionPlanFileAssignment[], message?: string) => void;
+  onClose: () => void;
 }
 
 interface EditableFile {
@@ -74,11 +75,10 @@ interface DragPayload {
   sourceFolderId: string;
 }
 
-export const ExecutionPlanPanel: React.FC<ExecutionPlanPanelProps> = ({ request, onSubmit }) => {
+export const ExecutionPlanPanel: React.FC<ExecutionPlanPanelProps> = ({ request, onSubmit, onClose }) => {
   const [tree, setTree] = useState<EditableScopeGroup[]>(() => toEditableTree(request.scopes));
-  const [message, setMessage] = useState('');
-  const [mode, setMode] = useState<'idle' | 'changes'>('idle');
   const [submitted, setSubmitted] = useState(false);
+  const [submittedAction, setSubmittedAction] = useState<'approve' | 'decline' | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [dragOverFolderId, setDragOverFolderId] = useState<string | null>(null);
 
@@ -239,22 +239,31 @@ export const ExecutionPlanPanel: React.FC<ExecutionPlanPanelProps> = ({ request,
     }
 
     setSubmitted(true);
+    setSubmittedAction('approve');
     onSubmit(request.inputId, 'approve', assignments);
   }, [allFolders, validate, request.inputId, onSubmit]);
 
-  const handleSendMessage = useCallback(() => {
-    const trimmed = message.trim();
-    if (!trimmed) return;
+  const handleDecline = useCallback(() => {
     setSubmitted(true);
-    onSubmit(request.inputId, 'message', undefined, trimmed);
-  }, [request.inputId, message, onSubmit]);
+    setSubmittedAction('decline');
+    onSubmit(request.inputId, 'decline');
+  }, [request.inputId, onSubmit]);
 
   if (submitted) {
     return (
       <div className="flex items-center justify-center h-full p-8">
         <div className="flex items-center gap-2 text-sm text-[#8a5a3d]">
-          <Check size={16} strokeWidth={2.5} className="text-[#15803d] flex-shrink-0" />
-          <span className="font-medium text-[#57341f]">{mode === 'changes' ? 'Message sent — waiting for agent…' : 'Approved — moving files…'}</span>
+          {submittedAction === 'approve' ? (
+            <>
+              <Check size={16} strokeWidth={2.5} className="text-[#15803d] flex-shrink-0" />
+              <span className="font-medium text-[#57341f]">Approved — moving files…</span>
+            </>
+          ) : (
+            <>
+              <X size={16} strokeWidth={2.5} className="text-[#991b1b] flex-shrink-0" />
+              <span className="font-medium text-[#57341f]">Declining and resetting...</span>
+            </>
+          )}
         </div>
       </div>
     );
@@ -263,11 +272,20 @@ export const ExecutionPlanPanel: React.FC<ExecutionPlanPanelProps> = ({ request,
   return (
     <div className="flex flex-col h-full">
       {/* Header */}
-      <div className="flex-shrink-0 px-6 py-4 border-b border-[#f3ddcd] bg-gradient-to-br from-[#fdf1ec] to-[#f9f1ea]">
-        <span className="text-base font-semibold text-[#57341f]">Final Move Plan</span>
-        <p className="text-xs text-[#8a5a3d] mt-0.5">
-          Drag files between folders, rename or delete folders, or create new ones — then approve when it's right.
-        </p>
+      <div className="flex-shrink-0 px-6 py-4 border-b border-[#f3ddcd] bg-gradient-to-br from-[#fdf1ec] to-[#f9f1ea] flex justify-between items-start">
+        <div>
+          <span className="text-base font-semibold text-[#57341f]">Final Move Plan</span>
+          <p className="text-xs text-[#8a5a3d] mt-0.5">
+            Drag files between folders, rename or delete folders, or create new ones — then approve when it's right.
+          </p>
+        </div>
+        <button
+          onClick={onClose}
+          className="text-[#8a5a3d] hover:text-[#57341f] hover:bg-[#f3ddcd] p-1.5 rounded-lg transition-colors duration-150"
+          title="Close review plan"
+        >
+          <X size={18} strokeWidth={2.5} />
+        </button>
       </div>
 
       {/* Body */}
@@ -300,59 +318,25 @@ export const ExecutionPlanPanel: React.FC<ExecutionPlanPanelProps> = ({ request,
           </div>
         )}
 
-        {mode === 'idle' && (
-          <div className="flex gap-2">
-            <button
-              onClick={handleApprove}
-              className="flex items-center gap-1.5 px-4 py-2 rounded-lg text-sm font-semibold text-white"
-              style={{ background: 'var(--color-accent)', boxShadow: '0 2px 8px rgba(194,97,61,0.3)' }}
-            >
-              <Check size={14} strokeWidth={2.5} />
-              Approve & Move Files
-            </button>
-            <button
-              onClick={() => setMode('changes')}
-              className="flex items-center gap-1.5 px-4 py-2 rounded-lg text-sm font-medium text-[#8a5a3d] bg-white border border-[#e8cab8] hover:bg-[#fdf1ec]"
-            >
-              Request Changes
-            </button>
-          </div>
-        )}
-
-        {mode === 'changes' && (
-          <div>
-            <p className="text-xs text-[#8a5a3d] mb-2 font-medium">
-              Describe what you'd like the agent to redo (e.g. "split documents differently"):
-            </p>
-            <div className="flex gap-2 items-end">
-              <textarea
-                value={message}
-                onChange={e => setMessage(e.target.value)}
-                onKeyDown={e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); handleSendMessage(); } }}
-                rows={2}
-                placeholder="e.g. recategorize the PDFs by year instead…"
-                className="flex-1 px-3 py-2 rounded-lg text-[13px] text-[#57341f] bg-white border border-[#e8cab8] outline-none resize-none"
-              />
-              <button
-                onClick={handleSendMessage}
-                disabled={!message.trim()}
-                className="px-3 h-[38px] rounded-lg text-xs font-semibold flex-shrink-0 disabled:cursor-not-allowed"
-                style={{
-                  background: message.trim() ? 'var(--color-accent)' : '#f3ddcd',
-                  color: message.trim() ? 'white' : '#b89178',
-                }}
-              >
-                Send
-              </button>
-            </div>
-            <button
-              onClick={() => { setMode('idle'); setMessage(''); }}
-              className="mt-1.5 text-[11px] text-[#b89178]"
-            >
-              ← Back
-            </button>
-          </div>
-        )}
+        <div className="flex gap-2">
+          <button
+            onClick={handleApprove}
+            className="flex items-center gap-1.5 px-4 py-2 rounded-lg text-sm font-semibold text-white transition-opacity duration-150"
+            style={{ background: 'var(--color-accent)', boxShadow: '0 2px 8px rgba(194,97,61,0.3)' }}
+            onMouseEnter={e => (e.currentTarget.style.opacity = '0.88')}
+            onMouseLeave={e => (e.currentTarget.style.opacity = '1')}
+          >
+            <Check size={14} strokeWidth={2.5} />
+            Approve & Move Files
+          </button>
+          <button
+            onClick={handleDecline}
+            className="flex items-center gap-1.5 px-4 py-2 rounded-lg text-sm font-medium text-red-600 bg-white border border-red-200 hover:bg-red-50 transition-colors duration-150"
+          >
+            <X size={14} strokeWidth={2.5} />
+            Decline & Cancel
+          </button>
+        </div>
       </div>
     </div>
   );

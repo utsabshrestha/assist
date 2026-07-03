@@ -192,7 +192,7 @@ export class ClassificationUtility {
                 return resolve({ labels: [], representatives: {}, outlierCounts: {} });
             }
 
-            const scriptPath = path.resolve(process.cwd(), 'scripts/cluster.py');
+            const scriptPath = path.resolve(process.cwd(), 'scripts/clusterV2.py');
             const pythonExecutable = path.resolve(process.cwd(), '.venv/bin/python3');
             
             const pythonProcess = spawn(pythonExecutable, [scriptPath]);

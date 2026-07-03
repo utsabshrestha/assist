@@ -134,7 +134,7 @@ export interface ElectronAPI {
   // Renderer → Main
   sendFolderReview: (inputId: string, action: 'approve' | 'message', message?: string) => void;
   sendScopeSelection: (inputId: string, action: 'submit' | 'message', selected?: CategorySummary, message?: string) => void;
-  sendExecutionPlanResponse: (inputId: string, action: 'approve' | 'message', assignments?: ExecutionPlanFileAssignment[], message?: string) => void;
+  sendExecutionPlanResponse: (inputId: string, action: 'approve' | 'decline' | 'message', assignments?: ExecutionPlanFileAssignment[], message?: string) => void;
   startAgent: (userMessage: string) => void;
   selectFolder: () => Promise<string | null>;
 

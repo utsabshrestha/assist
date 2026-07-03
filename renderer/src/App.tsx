@@ -66,7 +66,15 @@ const App: React.FC = () => {
 
     const removeStage = api.onStage(({ stage: s }) => {
       setStage(s);
-      if (s === 'done') setIsThinking(false);
+      if (s === 'done') {
+        setIsThinking(false);
+      } else if (s === 'idle') {
+        setIsThinking(false);
+        setHasStarted(false);
+        setMessages([]);
+        setLogs([]);
+        setTodoList([]);
+      }
     });
 
     const removeFolderReviewRequest = api.onFolderReviewRequest((payload) => {
@@ -120,7 +128,7 @@ const App: React.FC = () => {
     window.electronAPI?.sendScopeSelection(inputId, action, selected, message);
   }, []);
 
-  const handleExecutionPlanSubmit = useCallback((inputId: string, action: 'approve' | 'message', assignments?: ExecutionPlanFileAssignment[], message?: string) => {
+  const handleExecutionPlanSubmit = useCallback((inputId: string, action: 'approve' | 'decline' | 'message', assignments?: ExecutionPlanFileAssignment[], message?: string) => {
     setPendingExecutionPlan(null);
     setExecutionPlanModalOpen(false);
     setIsThinking(true);
@@ -251,6 +259,7 @@ const App: React.FC = () => {
             <ExecutionPlanPanel
               request={pendingExecutionPlan}
               onSubmit={handleExecutionPlanSubmit}
+              onClose={() => setExecutionPlanModalOpen(false)}
             />
           </div>
         </div>

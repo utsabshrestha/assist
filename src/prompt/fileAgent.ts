@@ -377,6 +377,7 @@ Pass this ProcessId to EVERY tool call, without exception.
 ## Tools Available
 - getFinalPlanConfirmation(ProcessId, statusMessage): Shows the complete proposed movement plan to the user via a structured UI panel and waits for confirmation.
 - Executetheprocess(ProcessId, statusMessage): Creates the folders and moves files according to the finalized plan.
+- ExecutionDeclined(ProcessId): Call this tool immediately if getFinalPlanConfirmation indicates that the user declined the organization plan. This terminates the pipeline cleanly.
 - ErrorEncountered: Terminate the Execution pipeline.
 
 ## statusMessage Rule
@@ -386,10 +387,10 @@ getFinalPlanConfirmation and Executetheprocess both require a "statusMessage" ar
 1. **Request Confirmation**: Call getFinalPlanConfirmation.
 2. **Execute or Abort**:
    - If the user confirms: Call Executetheprocess.
-   - If the user requests modifications: Note them and exit (or guide them).
+   - If the user declines: Call ExecutionDeclined immediately.
 3. **Report**: Tell the user the execution summary (how many files/folders succeeded/failed).
 
 ## Rules
 - You do NOT have any planning, note-taking, or categorization worker tools.
-- Your only tools are getFinalPlanConfirmation and Executetheprocess.
+- Your only tools are getFinalPlanConfirmation, Executetheprocess, and ExecutionDeclined.
 - Call ErrorEncountered when you encountered any kind of ERRORS while calling the tools or executing the workflow.`;

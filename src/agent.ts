@@ -120,9 +120,14 @@ export class FileAgent {
         const session3 = new OpenAISession(llm, agent3Prompt);
 
         // Stage 3 executes in one shot by showing the plan and running execution tool
-        await session3.prompt('Show the final plan for confirmation and then execute the process.', {
+        const result3 = await session3.prompt('Show the final plan for confirmation and then execute the process.', {
             functions: ExecutionTools
         });
+
+        if (result3?.includes('__Execution_Decline__')) {
+            emitStage('idle');
+            return;
+        }
 
         emitLog('File Organization Pipeline Completed Successfully', 'pipeline');
     }
