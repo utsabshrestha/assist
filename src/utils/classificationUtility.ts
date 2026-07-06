@@ -43,10 +43,10 @@ async function requestMergesForChunk(folderNames: string[], llmService: LlmChatC
 
     const userDedupPrompt = `Review and deduplicate this folder list. Output only the JSON merges object.
 
-Folders:
-${JSON.stringify(folderNames, null, 2)}
+    Folders:
+    ${JSON.stringify(folderNames, null, 2)}
 
-JSON:`;
+    JSON:`;
 
     try {
         const response = await llmService.openai.chat.completions.create({
@@ -85,7 +85,7 @@ JSON:`;
 export function extractTaggedOutput(message: { content?: string; reasoning_content?: string } | undefined): string {
     const text = message?.content || message?.reasoning_content || "";
     const match = text.match(/<output>([\s\S]*?)<\/output>/i);
-    if (match) return match[1].trim();
+    if (match?.[1]) return match[1].trim();
     return text.replace(/<think>[\s\S]*?<\/think>/gi, '').replace(/<output>/gi, '').trim();
 }
 
@@ -140,7 +140,7 @@ export class ClassificationUtility {
      * the same process over the merged result until it stops shrinking, or the list fits
      * in one chunk.
      */
-    public static async deduplicateCategories(folderNames: string[], llmService: LlmChatClient): Promise<DedupMerge[]> {
+    public static async deduplicateCategories(folderNames: string[],    : LlmChatClient): Promise<DedupMerge[]> {
         if (folderNames.length <= 1) return [];
 
         const allMerges: DedupMerge[] = [];
@@ -181,22 +181,27 @@ export class ClassificationUtility {
         return allMerges;
     }
     
-    /**
-     * Takes an array of embeddings and uses a Python HDBSCAN script to cluster them.
-     * Returns an array of cluster labels corresponding to each embedding.
-     * A label of -1 indicates "noise" (no cluster).
-     */
-    public static async clusterEmbeddings(embeddings: number[][]): Promise<{ labels: number[], representatives: Record<string, number[]>, outlierCounts: Record<string, number> }> {
+    public static async clusterEmbeddings(
+        embeddings: number[][],
+        texts?: string[]
+    ): Promise<{
+        labels: number[];
+        representatives: Record<string, number[]>; // cluster_id -> up to 4 member indices, Core -> Edge
+        outlierCounts: Record<string, number>;
+        keywords: Record<string, string[]>;         // cluster_id -> top c-TF-IDF keywords
+        clusterSizes: Record<string, number>;
+        fileDiagnostics: Record<string, unknown>;
+    }> {
         return new Promise((resolve, reject) => {
             if (!embeddings || embeddings.length === 0) {
-                return resolve({ labels: [], representatives: {}, outlierCounts: {} });
+                return resolve({ labels: [], representatives: {}, outlierCounts: {}, keywords: {}, clusterSizes: {}, fileDiagnostics: {} });
             }
 
             const scriptPath = path.resolve(process.cwd(), 'scripts/clusterV2.py');
             const pythonExecutable = path.resolve(process.cwd(), '.venv/bin/python3');
-            
+
             const pythonProcess = spawn(pythonExecutable, [scriptPath]);
-            
+
             let outputData = '';
             let errorData = '';
 
@@ -218,10 +223,17 @@ export class ClassificationUtility {
                         return reject(new Error(`Clustering error: ${result.error}`));
                     }
                     if (Array.isArray(result)) {
-                        // Backwards compatibility if python scripts returns array
-                        resolve({ labels: result, representatives: {}, outlierCounts: {} });
+                        // Backwards compatibility if the python script returns a bare array
+                        resolve({ labels: result, representatives: {}, outlierCounts: {}, keywords: {}, clusterSizes: {}, fileDiagnostics: {} });
                     } else {
-                        resolve(result);
+                        resolve({
+                            labels: result.labels ?? [],
+                            representatives: result.representatives ?? {},
+                            outlierCounts: result.outlierCounts ?? {},
+                            keywords: result.keywords ?? {},
+                            clusterSizes: result.clusterSizes ?? {},
+                            fileDiagnostics: result.fileDiagnostics ?? {}
+                        });
                     }
                 } catch (e) {
                     reject(new Error(`Failed to parse clustering output.\nPython code: ${code}\nStderr: ${errorData}\nStdout: ${outputData}`));
@@ -233,8 +245,9 @@ export class ClassificationUtility {
                 console.error("Failed to write to python process. It might have crashed on startup.", err);
             });
 
-            // Send standard input
-            const inputJson = JSON.stringify(embeddings);
+            // texts must be the same length/order as embeddings -- cluster.py zips
+            // them positionally to build each cluster's c-TF-IDF pseudo-document.
+            const inputJson = JSON.stringify({ embeddings, texts });
             pythonProcess.stdin.write(inputJson);
             pythonProcess.stdin.end();
         });

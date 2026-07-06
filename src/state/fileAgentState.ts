@@ -33,7 +33,7 @@ export interface TodoItem {
     extensionList: string []
     /**
      * Per-extension sub-progress, populated only for the Documents task by
-     * categorization code — never authored by the LLM, never part of CreateTodoListTool/ViewOrUpdateTodoListTool's schema.
+    * categorization code — never authored by the LLM, never part of CreateTodoListTool/ViewTodoListTool/UpdateTodoListTool's schema.
      */
     subTasks?: TodoSubTask[];
     /**

@@ -308,15 +308,43 @@ const CreateTodoListTool = ({
     }
 });
 
-const ViewOrUpdateTodoListTool = ({
-    description: "View or update the To-Do list. Call with no 'updates' to view the full current list with all details. Pass 'updates' (one or more task id + status pairs) to update tasks without needing to resend the full list.",
+const ViewTodoListTool = ({
+    description: "View the current To-Do list with all details.",
+    params: {
+        type: "object",
+        properties: {
+            ProcessId: { type: "string" },
+            statusMessage: {
+                type: "string",
+                description: "A short, friendly first-person message telling the user what you're about to do, e.g. 'Checking your task list...'. This will be shown directly to the user."
+            }
+        },
+        required: ["ProcessId", "statusMessage"]
+    },
+    async handler(params: {ProcessId: string, statusMessage: string}): Promise<string> {
+        emitLog(`ViewTodoListTool`, 'tool_call', 'ViewTodoListTool');
+        emitAgentMessage(params.statusMessage);
+        const state = fileAgentRecord[params.ProcessId];
+        if (!state) return "Error: Invalid ProcessId.";
+
+        if ((!state.todoList || state.todoList.length === 0) && state.globalNotes.length === 0) return "Todo list and notes are empty.";
+
+        return JSON.stringify({
+            globalNotes: state.globalNotes,
+            todoList: state.todoList
+        });
+    }
+});
+
+const UpdateTodoListTool = ({
+    description: "Update one or more tasks in the To-Do list and return the updated task details.",
     params: {
         type: "object",
         properties: {
             ProcessId: { type: "string" },
             updates: {
                 type: "array",
-                description: "Omit to just view the list. Provide one or more updates to apply, each identifying a task by id.",
+                description: "Provide one or more updates to apply, each identifying a task by id.",
                 items: {
                     type: "object",
                     properties: {
@@ -332,30 +360,31 @@ const ViewOrUpdateTodoListTool = ({
                 description: "A short, friendly first-person message telling the user what you're about to do, e.g. 'Updating your task list...'. This will be shown directly to the user."
             }
         },
-        required: ["ProcessId", "statusMessage"]
+        required: ["ProcessId", "updates", "statusMessage"]
     },
-    async handler(params: {ProcessId: string, updates?: { taskId: number, status: string, notes?: string }[], statusMessage: string}): Promise<string> {
-        emitLog(`ViewOrUpdateTodoListTool (updates: ${params.updates?.length ?? 0})`, 'tool_call', 'ViewOrUpdateTodoListTool');
+    async handler(params: {ProcessId: string, updates: { taskId: number, status: string, notes?: string }[], statusMessage: string}): Promise<string> {
+        emitLog(`UpdateTodoListTool (updates: ${params.updates.length})`, 'tool_call', 'UpdateTodoListTool');
         emitAgentMessage(params.statusMessage);
         const state = fileAgentRecord[params.ProcessId];
         if (!state) return "Error: Invalid ProcessId.";
 
-        if (params.updates && params.updates.length > 0) {
-            for (const update of params.updates) {
-                const task = state.todoList.find(t => t.id === update.taskId);
-                if (!task) return `Error: Task with id ${update.taskId} not found.`;
-                task.status = update.status as any;
-                if (update.notes) task.notes = update.notes;
-                emitAgentMessage(`${task.title} → ${update.status}`, 'task_update', `task_${params.ProcessId}_${update.taskId}`);
-            }
-            emitTodoUpdate(state.todoList);
+        if (!params.updates || params.updates.length === 0) return "Error: updates is required.";
+
+        let updatedTask: any = null;
+        for (const update of params.updates) {
+            const task = state.todoList.find(t => t.id === update.taskId);
+            if (!task) return `Error: Task with id ${update.taskId} not found.`;
+            task.status = update.status as any;
+            if (update.notes) task.notes = update.notes;
+            updatedTask = { ...task };
+            emitAgentMessage(`${task.title} → ${update.status}`, 'task_update', `task_${params.ProcessId}_${update.taskId}`);
         }
 
-        if ((!state.todoList || state.todoList.length === 0) && state.globalNotes.length === 0) return "Todo list and notes are empty.";
+        emitTodoUpdate(state.todoList);
 
         return JSON.stringify({
-            globalNotes: state.globalNotes,
-            todoList: state.todoList
+            updatedTask,
+            status: updatedTask?.status ?? null
         });
     }
 });
@@ -363,7 +392,8 @@ const ViewOrUpdateTodoListTool = ({
 
 export {
     CreateTodoListTool,
-    ViewOrUpdateTodoListTool,
+    ViewTodoListTool,
+    UpdateTodoListTool,
     MemoryScratchpadTool
 };
 
@@ -371,7 +401,8 @@ export const PlanningTools = {
     GetFolderSummaryTool,
     PresentScopeSelectionTool,
     CreateTodoListTool,
-    ViewOrUpdateTodoListTool,
+    ViewTodoListTool,
+    UpdateTodoListTool,
     MemoryScratchpadTool,
     HandOffToCategorizationAgent,
     ErrorEncountered

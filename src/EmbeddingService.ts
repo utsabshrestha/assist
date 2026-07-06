@@ -28,18 +28,61 @@ export class EmbeddingService {
         console.log("Embedding model loaded successfully.");
     }
 
-    public async generateEmbedding(text: string, taskPrefix = "search_document: "): Promise<number[]> {
+    public async generateEmbedding(text: string, taskPrefix = "clustering : "): Promise<number[]> {
         if (!this._context) {
             throw new Error("Embedding context not initialized");
         }
         try {
-            const embedding = await this._context.getEmbeddingFor(taskPrefix + text);
+            if(text.substring(0, taskPrefix.length) !== taskPrefix) {
+                text = taskPrefix + text;
+            }
+            const embedding = await this._context.getEmbeddingFor(text);
             // Convert Float32Array/Float64Array to regular standard array for easy JSON serialization
-            return Array.from(embedding.vector);
+            const vector = Array.from(embedding.vector) as number[];
+            
+            // L2-normalize vector
+            let sumSq = 0;
+            for (let i = 0; i < vector.length; i++) {
+                sumSq += vector[i] * vector[i];
+            }
+            const norm = Math.sqrt(sumSq);
+            if (norm > 0) {
+                for (let i = 0; i < vector.length; i++) {
+                    vector[i] /= norm;
+                }
+            }
+            return vector;
         } catch (error) {
             console.error("Error generating local embedding:", error);
             return [];
         }
+    }
+
+    public async generateEmbeddings(
+        texts: string[],
+        taskPrefix = "clustering : ",
+        onProgress?: (completed: number, total: number) => void
+    ): Promise<number[][]> {
+        const results: number[][] = [];
+        for (let i = 0; i < texts.length; i++) {
+            const emb = await this.generateEmbedding(texts[i], taskPrefix);
+            results.push(emb);
+            if (onProgress) {
+                onProgress(i + 1, texts.length);
+            }
+        }
+        return results;
+    }
+
+    public tokenize(text: string): number[] {
+        if (!this._model) {
+            throw new Error("Embedding model not initialized");
+        }
+        return this._model.tokenize(text);
+    }
+
+    public countTokens(text: string): number {
+        return this.tokenize(text).length;
     }
 
     public dispose() {

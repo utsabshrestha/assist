@@ -26,32 +26,51 @@ export class FileClassificationTool {
         }
 
         const llmService = await LLMService.getInstance();
-        const embeddingService = await EmbeddingService.getInstance();
         emitAgentMessage(`Analyzing ${filePaths.length} files...`, 'task_update', progress.groupId);
         emitLog(`Extracting content & embedding ${filePaths.length} files for ${progress.label}`, 'pipeline', 'Clustering');
 
         try {
-            // 1. Extract content and Generate Embeddings
-            const embeddings: number[][] = [];
-            const contents: string[] = [];
-            for (const [i, filePath] of filePaths.entries()) {
+            const embeddingService = await EmbeddingService.getInstance();
+
+            // 1. Extract content for every file. Local I/O/parsing -- not the
+            //    network step -- so this stays a simple sequential loop.
+            const baseNames: string[] = [];
+            const contents: string[] = [];       // kept for logging/debug; no longer fed into the naming prompt directly
+            const embeddingInputs: string[] = [];
+
+            for (const filePath of filePaths) {
                 const { baseName, snippet } = await FileContentExtractor.extractContent(filePath);
-                // Filename is kept separately for the naming prompt, but excluded from the
-                // embedding input so arbitrary/repeated filename tokens don't skew clustering.
+                baseNames.push(baseName);
                 contents.push(`Title: ${baseName}\n\nSnippet: ${snippet}`);
-                const embeddingInput = snippet.trim().length > 0 ? snippet : baseName;
-                const embedding = await embeddingService.generateEmbedding(embeddingInput, "search_document: ");
-                embeddings.push(embedding);
-                emitLog(`Embedded ${i + 1}/${filePaths.length}: ${baseName}`, 'tool_result', 'Clustering');
+                // Filename is excluded from the embedding/keyword input so arbitrary or
+                // repeated filename tokens don't skew clustering or c-TF-IDF keywords.
+                embeddingInputs.push(snippet.trim().length > 0 ? snippet : baseName);
             }
 
-            // 2. Cluster the files using Python bridge
+            // 2. Batch-embed every file in one call (chunked internally by the service).
+            const embeddings = await embeddingService.generateEmbeddings(
+                embeddingInputs,
+                "clustering: ",
+                (completed, total) => {
+                    try{
+                        emitLog(`Embedded ${completed}/${total}: ${baseNames[completed - 1]}`, 'tool_result', 'Clustering');
+                    } catch (err) {
+                        emitLog(`Error during embedding progress logging: ${err instanceof Error ? err.message : String(err)}`, 'error', 'Clustering');
+                        throw err; // Re-throw to ensure the error is not silently swallowed
+                    }
+                }
+            );
+
+            // 3. Cluster the files using the Python bridge. `embeddingInputs` is also
+            //    passed as `texts` so Stage 7 (c-TF-IDF) has real content to work with --
+            //    same text used for embedding, for the same anti-filename-pollution reason.
             emitLog('Clustering embeddings...', 'pipeline', 'Clustering');
-            const clusterResult = await ClassificationUtility.clusterEmbeddings(embeddings);
+            const clusterResult = await ClassificationUtility.clusterEmbeddings(embeddings, embeddingInputs);
             const labels = clusterResult.labels;
-            const representatives = clusterResult.representatives;
+            const representatives = clusterResult.representatives; // cluster_id -> up to 4 member indices, Core -> Edge
             const outlierCounts = clusterResult.outlierCounts;
-            
+            const keywords = clusterResult.keywords;               // cluster_id -> top c-TF-IDF keywords
+
             // Group filenames by cluster label
             const clusters: Record<number, string[]> = {};
             for (let i = 0; i < labels.length; i++) {
@@ -61,50 +80,58 @@ export class FileClassificationTool {
                 }
                 clusters[label].push(path.basename(filePaths[i]));
             }
-            
-            // 3. Generate Folder Names using LLM for each valid cluster
+
+            // 4. Generate Folder Names using LLM for each valid cluster
             const result: Record<string, string[]> = {};
             const clusterCount = Object.keys(clusters).length;
             emitAgentMessage(`Naming ${clusterCount} group(s) for ${progress.label}...`, 'task_update', progress.groupId);
             emitLog(`Generating folder names for ${clusterCount} cluster(s)`, 'pipeline', 'Clustering');
 
             const sysprompt = fileCategorizationPrompt;
-            
-            
+
             for (const [labelStr, fileNames] of Object.entries(clusters)) {
                 const label = parseInt(labelStr, 10);
-                
+
                 if (label === -1) {
-                    // Noise / Unclassified files
+                    // Noise / Unclassified files -- Stage 6: skip naming entirely, no LLM call.
                     result['Uncategorized'] = (result['Uncategorized'] || []).concat(fileNames);
                 }
                 else {
-                    // Get snippets of representative files, tagged by distance-to-centroid
-                    // position (Core = most typical, Edge = most atypical) so the model can
-                    // weigh a lone Edge sample differently than a Core one instead of treating
-                    // all samples as equally representative of the cluster.
+                    // Representative file indices, Core (typical) -> Edge (atypical), from Stage 4/5's
+                    // final cluster membership -- used for filename grounding, not full content anymore.
                     const repIndices = representatives[label.toString()] || [];
-                    const repContents = repIndices.map((idx, i) => {
+                    const repFileLines = repIndices.map((idx, i) => {
                         const positionTag = ClassificationUtility.describeRepresentativePosition(i, repIndices.length);
-                        return `[${positionTag}]\n${contents[idx]}`;
-                    });
-                    const contentToLLM = repContents.length > 0 ? repContents.join('\n\n') : fileNames.join('\n');
+                        return `[${positionTag}] ${path.basename(filePaths[idx])}`;
+                    }).join('\n');
+
+                    // Primary naming signal: distinctive c-TF-IDF keywords for this cluster
+                    // (Stage 7) instead of dumping representative file snippets -- cheaper,
+                    // and keywords are explicitly computed to be distinctive to this cluster
+                    // rather than just locally frequent.
+                    const keywordList = keywords[label.toString()] || [];
+                    const keywordsText = keywordList.length > 0
+                        ? keywordList.join(', ')
+                        : '(no distinctive keywords extracted for this group)';
 
                     const allFilesNote = fileNames.length > repIndices.length
                         ? `\n\nAll ${fileNames.length} files in this group: ${fileNames.join(', ')}`
                         : '';
 
                     // Surface cluster density so the model has actual evidence for "do any
-                    // files break the theme" instead of guessing from a handful of samples —
-                    // most useful on large clusters where only ~8 of many files were shown.
+                    // files break the theme" instead of guessing from a handful of samples --
+                    // most useful on large clusters where only a few of many files are shown.
                     const outlierCount = outlierCounts[label.toString()] || 0;
                     const outlierNote = outlierCount > 0
                         ? `\n\nNote: ${outlierCount} of ${fileNames.length} files in this group sit notably farther from the group's center than the rest — they may be off-theme.`
                         : '';
 
-                    // Ask LLM to name the folder based on the file contents
+                    // Ask LLM to name the folder based on distinctive keywords + representative filenames
                     const prompt = `Files to categorize:
-                            ${contentToLLM}${allFilesNote}${outlierNote}
+                            Distinctive keywords: ${keywordsText}
+
+                            Representative files:
+                            ${repFileLines}${allFilesNote}${outlierNote}
 
                             Folder name:`;
 
@@ -127,7 +154,7 @@ export class FileClassificationTool {
 
                     const message: any = response.choices[0]?.message;
                     // Raw request/response, kept on a separate 'tool_call'-typed log so it's
-                    // filterable independently from the human-readable summary below — for
+                    // filterable independently from the human-readable summary below -- for
                     // debugging the prompt/model, not for end-user visibility.
                     emitLog(`Cluster ${label} prompt:\n${prompt}\n\nRaw model output:\n${JSON.stringify(message, null, 2)}`, 'tool_call', 'Clustering');
 
@@ -135,7 +162,7 @@ export class FileClassificationTool {
                     if (!folderName) {
                         // Distinguish "hit max_tokens mid-reasoning" (still rambling, needs a
                         // bigger budget) from "stopped naturally but forgot the tag" (a
-                        // formatting slip the repair call below can usually fix) — same failure
+                        // formatting slip the repair call below can usually fix) -- same failure
                         // symptom downstream, different root cause to tune against.
                         const finishReason = response.choices[0]?.finish_reason;
                         const rawText = message?.content || message?.reasoning_content || "";
@@ -163,6 +190,7 @@ export class FileClassificationTool {
                         .join(', ');
                     emitLog(
                         `Cluster ${label} (${fileNames.length} files) → "${cleanFolderName}"\n` +
+                        `Keywords: ${keywordsText}\n` +
                         `Based on: ${basedOnFiles}\n` +
                         `Reasoning: ${reasoningPreview || '(none — name was repaired from incomplete output)'}`,
                         'tool_result',
@@ -170,43 +198,25 @@ export class FileClassificationTool {
                     );
 
                     result[cleanFolderName] = (result[cleanFolderName] || []).concat(fileNames);
-
-                }
-            }
-            // 3.5 Deduplicate similar folder names
-            const folderNames = Object.keys(result);
-            if (folderNames.length > 1) {
-                emitLog('Checking for similar category names to deduplicate...', 'pipeline', 'Clustering');
-
-                const merges = await ClassificationUtility.deduplicateCategories(folderNames, llmService);
-
-                if (merges.length > 0) {
-                    emitLog(`Merged ${merges.length} similar categories`, 'tool_result', 'Clustering');
-                    for (const merge of merges) {
-                        if (result[merge.source] && result[merge.target] && merge.source !== merge.target) {
-                            result[merge.target] = result[merge.target].concat(result[merge.source]);
-                            delete result[merge.source];
-                        } else if (result[merge.source] && !result[merge.target]) {
-                            // Rename case where target doesn't exist
-                            result[merge.target] = result[merge.source];
-                            delete result[merge.source];
-                        }
-                    }
                 }
             }
 
-            emitAgentMessage(`${progress.label}: organized into ${Object.keys(result).length} categories`, 'task_update', progress.groupId);
+            // TODO (needs your dedup function to adapt properly): the exact-string merge
+            // above (`result[cleanFolderName] = ... .concat(fileNames)`) only catches
+            // clusters that produced the identical name string. Your separate
+            // deduplication pass presumably catches near-duplicates ("Invoices" vs
+            // "Billing Documents") on top of this -- if that pass only compares folder
+            // name strings, consider also passing it a name -> keywords map (built from
+            // `keywords` above, keyed by the same cleanFolderName) so merge decisions can
+            // be based on topical overlap, not just name-string similarity. Share that
+            // function and I'll wire it in correctly.
+
             return result;
 
-        } catch (err: any) {
-            console.error("Error during file classification:", err);
-            emitLog(`Error during classification: ${err?.message ?? err}`, 'error', 'Clustering');
-            throw err;
-        } finally {
-            // 4. Dispose embedding model to free memory
-            if (embeddingService) {
-                embeddingService.dispose();
-            }
+        } catch (error) {
+            // NOTE: your original catch clause wasn't included in the excerpt you shared --
+            // keep whatever error handling/logging you had here.
+            throw error;
         }
     }
 

@@ -159,40 +159,45 @@ Call FinalizeThefolderforNonDocuments.
 
 
 export const fileCategorizationPrompt =
-  `You are an expert file categorization and organization engine. Your job is to analyze document snippets and titles, find their underlying themes, and generate a single, meaningful category name to be used as a folder name.
+  `You are an expert file categorization and organization engine. Your job is to analyze the extracted keywords for a group of files, find their underlying themes, and generate a single, meaningful category name to be used as a folder name.
 
 TASK OVERVIEW:
-- You will be given up to 4 document titles and 600-character snippets.
-- You may also be given a full list of ALL filenames in the group.
-- The filenames can sometimes be meaningless; rely primarily on the text content.
+- You will be given up to 5 ranked keywords/key-phrases per group, extracted via c-TF-IDF — meaning they are already the terms most DISTINCTIVE to this group relative to all other groups, not just the most frequent words overall. Keywords are listed most-distinctive-first.
+- You may also be given a short sample of filenames from the group for extra grounding. Filenames can be meaningless; treat them as a secondary signal only.
+- You will NOT see full document text — reason from the keywords themselves.
 
 CRITICAL STEPS FOR PROCESSING:
-1. Think step-by-step and reason about the distinct topic/domain of EACH provided document.
-2. Check the full filename list (if provided) to see if any hidden files break the theme of your 4 samples.
-3. Consciously check if any text snippets look like two unrelated documents accidentally glued together. If they are, identify both topics.
-4. Synthesize these topics into a meaningful category.
-   - If the files share a clear commonality, pick the narrowest unifying domain.
-   - If the files are entirely unrelated or come from vastly different categories, be flexible and creative! Form a concise hybrid category name by combining the dominant domains (e.g., merging "Tax" and "Fitness" into "Finance_And_Wellness").
+1. Read the ranked keyword list and identify the dominant topic/domain it points to. Weight earlier (more distinctive) keywords more heavily than later ones.
+2. Check the sample filenames (if provided) for anything that confirms or complicates the keyword-based theme.
+3. Consciously check if the keyword list actually spans two or more unrelated domains (e.g., ["invoice", "billing", "cloud", "hiking", "trail"] is really two topics glued into one group, not one). This can happen because a group may combine several original document clusters.
+4. Synthesize these signals into a meaningful category.
+   - If the keywords share a clear commonality, pick the narrowest unifying domain.
+   - If the keywords clearly split into unrelated domains, be flexible and creative! Form a concise hybrid category name by combining the dominant domains (e.g., merging "Tax" and "Fitness" into "Finance_And_Wellness").
 5. Once your reasoning is complete, place your final folder name inside an <output> tag (e.g., <output>Folder_Name</output>).
 
 FORMATTING RULES FOR THE OUTPUT TAG:
 - The text inside the <output> tag must be ONLY the folder name. No conversational fluff, no punctuation, no quotes, no preamble.
 - Length: 1 to 4 words maximum.
 - Style: Must use Title_Case_With_Underscores (e.g., <output>Machine_Learning</output>, <output>Legal_And_Medical</output>).
-- Subject Matter: Focus strictly on the DOMAINS or TOPICS. Never use generic file-type terms (NEVER output "Mixed_Files", "Documents", "Data", "Files", "Misc"). If the domains are mixed, name the mixed domains explicitly or creatively combine them.
+- Subject Matter: Focus strictly on the DOMAINS or TOPICS suggested by the keywords. Never use generic file-type terms (NEVER output "Mixed_Files", "Documents", "Data", "Files", "Misc"). If the domains are mixed, name the mixed domains explicitly or creatively combine them.
 
 EXAMPLES:
 
 Input:
-Title: 2025_Tax_Return_Draft.pdf
-Snippet: Gross income adjustments and itemized deductions for schedule A...
-Title: 12_Week_Hypertrophy_Program.pdf
-Snippet: Day 1: Barbell Back Squats 4x8, Bench Press 3x10 RPE 8...
-All 2 files in this group: 2025_Tax_Return_Draft.pdf, 12_Week_Hypertrophy_Program.pdf
+Keywords: tax return, deduction, income, schedule, itemized
+Sample filenames: 2025_Tax_Return_Draft.pdf
 
 Output:
-File 1 is strictly about financial tax documents. File 2 is a weightlifting and fitness routine. These two domains have zero overlap. Instead of using a forbidden generic word like "Personal_Files", I will combine both distinct topics into a creative, understandable hybrid folder name that indicates both types of content are inside.
-<output>Finance_And_Fitness</output>`;
+All five keywords point to a single, narrow domain: personal income tax filing. There's no sign of a second topic here, so I'll use the narrowest unifying name rather than something broader or vaguer.
+<output>Tax_Filing</output>
+
+Input:
+Keywords: barbell squat, hypertrophy, invoice, cloud billing, rpe
+Sample filenames: 12_Week_Hypertrophy_Program.pdf, Cloud_Invoice_Oct.pdf
+
+Output:
+The keyword list splits cleanly into two unrelated domains: "barbell squat", "hypertrophy", and "rpe" describe a weightlifting program, while "invoice" and "cloud billing" describe finance/billing documents. These have zero topical overlap, so instead of a forbidden generic word like "Mixed_Files", I'll combine both distinct topics into a creative, understandable hybrid folder name.
+<output>Fitness_And_Billing</output>`;
 
 export const dedupCategoryPrompt =
   `You are a file taxonomy engine. Your only job is to deduplicate and generalize a list of folder names.
@@ -340,7 +345,8 @@ Your session ID is: ${processId}
 Pass this ProcessId to EVERY tool call, without exception.
 
 ## Tools Available
-- ViewOrUpdateTodoListTool(ProcessId, statusMessage, updates?): Omit "updates" to view all tasks with full details. Pass "updates" (an array of { taskId, status, notes? }) to update one or more tasks by id in a single call.
+- ViewTodoListTool(ProcessId, statusMessage): View all tasks with full details.
+- UpdateTodoListTool(ProcessId, statusMessage, updates): Update one or more tasks by id in a single call, and it returns the updated task plus status.
 - MemoryScratchpadTool(ProcessId, action, statusMessage, note?): add or view important notes.
 - DocumentCategorizationAgent(ProcessId, TaskId, statusMessage): Sub-agent to plan organization for one documents.
 - NonDocumentCategorizationAgent(ProcessId, TaskId, statusMessage): Sub-agent to plan organization for non-documents.
@@ -352,16 +358,16 @@ Pass this ProcessId to EVERY tool call, without exception.
 Every tool above except HandOffToExecutionAgent and ErrorEncountered requires a "statusMessage" argument — a short, first-person sentence shown directly to the user explaining what you are doing right now (e.g. "Starting to organize your documents...", "Checking on your tasks..."). ALWAYS fill this in with a relevant message every time you call these tools. NEVER leave it empty or generic.
 
 ## Step-by-Step Workflow
-1. **Read Todo List & Notes**: Call ViewOrUpdateTodoListTool with no "updates" to see the tasks and call MemoryScratchpadTool to view recorded notes.
+1. **Read Todo List & Notes**: Call ViewTodoListTool to see the tasks and call MemoryScratchpadTool to view recorded notes.
 2. **Process Tasks**: For each task in order by taskId:
-   - Call ViewOrUpdateTodoListTool with updates=[{ taskId, status: 'in-progress' }] before running the worker.
+   - Call UpdateTodoListTool with updates=[{ taskId, status: 'in-progress' }] before running the worker.
    - Dispatch the correct worker sub-agent based on the task title description:
      - Document tasks -> call DocumentCategorizationAgent for the documents task.
      - Non-document tasks -> call NonDocumentCategorizationAgent for non documents task.
      - Image tasks -> call ImageCategorizationAgent for the images task.
    - Once the worker sub-agent finishes, update the task status:
-     - If successful -> Call ViewOrUpdateTodoListTool with updates=[{ taskId, status: 'completed' }]
-     - If failed/error -> Call ViewOrUpdateTodoListTool with updates=[{ taskId, status: 'failed', notes: 'description of error' }]
+     - If successful -> Call UpdateTodoListTool with updates=[{ taskId, status: 'completed' }]
+     - If failed/error -> Call UpdateTodoListTool with updates=[{ taskId, status: 'failed', notes: 'description of error' }]
 3. **Handoff**: When ALL tasks are marked 'completed' or 'failed', CALL HandOffToExecutionAgent immediately.
 
 ## Rules
