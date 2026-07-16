@@ -19,7 +19,7 @@ export class EmbeddingService {
         return EmbeddingService.instance;
     }
 
-  private async init() {
+    private async init() {
         console.log("Loading nomic-embed-text-v1.5.Q6_K.gguf via node-llama-cpp...");
         const llama = await getLlama();
         const modelPath = path.resolve(process.cwd(), "nomic-embed-text-v1.5.Q6_K.gguf");
@@ -33,7 +33,7 @@ export class EmbeddingService {
         console.log("Embedding model loaded successfully.");
     }
 
-    public async generateEmbedding(text: string, taskPrefix = "clustering: "): Promise<number[]> {
+    public async generateEmbedding(text: string, taskPrefix = "clustering : "): Promise<number[]> {
         if (!this._context) {
             throw new Error("Embedding context not initialized");
         }
@@ -65,7 +65,7 @@ export class EmbeddingService {
 
     public async generateEmbeddings(
         texts: string[],
-        taskPrefix = "clustering: ",
+        taskPrefix = "clustering : ",
         onProgress?: (completed: number, total: number) => void
     ): Promise<number[][]> {
         const results: number[][] = [];

@@ -1,6 +1,7 @@
 import { spawn } from 'child_process';
 import * as path from 'path';
 import { dedupCategoryPrompt } from '../prompt/fileAgent.js';
+import { Readable } from 'stream';
 
 const DEDUP_CHUNK_SIZE = 9;
 
@@ -43,10 +44,10 @@ async function requestMergesForChunk(folderNames: string[], llmService: LlmChatC
 
     const userDedupPrompt = `Review and deduplicate this folder list. Output only the JSON merges object.
 
-    Folders:
-    ${JSON.stringify(folderNames, null, 2)}
+Folders:
+${JSON.stringify(folderNames, null, 2)}
 
-    JSON:`;
+JSON:`;
 
     try {
         const response = await llmService.openai.chat.completions.create({
@@ -140,7 +141,7 @@ export class ClassificationUtility {
      * the same process over the merged result until it stops shrinking, or the list fits
      * in one chunk.
      */
-    public static async deduplicateCategories(folderNames: string[],    : LlmChatClient): Promise<DedupMerge[]> {
+    public static async deduplicateCategories(folderNames: string[], llmService: LlmChatClient): Promise<DedupMerge[]> {
         if (folderNames.length <= 1) return [];
 
         const allMerges: DedupMerge[] = [];
@@ -182,8 +183,8 @@ export class ClassificationUtility {
     }
     
     public static async clusterEmbeddings(
-        embeddings: number[][],
-        texts?: string[]
+    embeddings: number[][],
+    texts?: string[]
     ): Promise<{
         labels: number[];
         representatives: Record<string, number[]>; // cluster_id -> up to 4 member indices, Core -> Edge
@@ -197,23 +198,27 @@ export class ClassificationUtility {
                 return resolve({ labels: [], representatives: {}, outlierCounts: {}, keywords: {}, clusterSizes: {}, fileDiagnostics: {} });
             }
 
-            const scriptPath = path.resolve(process.cwd(), 'scripts/clusterV2.py');
+            const scriptPath = path.resolve(process.cwd(), 'scripts/clusterV3.py');
             const pythonExecutable = path.resolve(process.cwd(), '.venv/bin/python3');
 
             const pythonProcess = spawn(pythonExecutable, [scriptPath]);
 
-            let outputData = '';
-            let errorData = '';
+            // Using Buffer arrays to avoid memory fragmentation/leaks with large strings
+            const stdoutChunks: Buffer[] = [];
+            const stderrChunks: Buffer[] = [];
 
-            pythonProcess.stdout.on('data', (data) => {
-                outputData += data.toString();
+            pythonProcess.stdout.on('data', (data: Buffer) => {
+                stdoutChunks.push(data);
             });
 
-            pythonProcess.stderr.on('data', (data) => {
-                errorData += data.toString();
+            pythonProcess.stderr.on('data', (data: Buffer) => {
+                stderrChunks.push(data);
             });
 
             pythonProcess.on('close', (code) => {
+                const outputData = Buffer.concat(stdoutChunks).toString();
+                const errorData = Buffer.concat(stderrChunks).toString();
+
                 if (code !== 0) {
                     return reject(new Error(`Python clustering script failed (code ${code}): ${errorData}`));
                 }
@@ -248,8 +253,10 @@ export class ClassificationUtility {
             // texts must be the same length/order as embeddings -- cluster.py zips
             // them positionally to build each cluster's c-TF-IDF pseudo-document.
             const inputJson = JSON.stringify({ embeddings, texts });
-            pythonProcess.stdin.write(inputJson);
-            pythonProcess.stdin.end();
+
+            // Streams the data safely into stdin. This avoids buffer overflows (backpressure)
+            // and automatically invokes .end() on completion.
+            Readable.from([inputJson]).pipe(pythonProcess.stdin);
         });
     }
 

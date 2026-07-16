@@ -94,7 +94,7 @@ export class FileContentExtractor {
     // nomic-embed-text-v1.5 requires a task prefix at embed time
     // ("search_document: " / "search_query: "), which also eats into the
     // context budget - reserved here rather than added silently downstream.
-    private static readonly EMBED_PREFIX = 'clustering: ';
+    private static readonly EMBED_PREFIX = 'clustering : ';
     private static readonly TARGET_TOKENS = 3900; // safety margin under 2048
 
     private static extractTextFromParsedObject(obj: any): string {
@@ -121,13 +121,10 @@ export class FileContentExtractor {
         const baseName = path.basename(filePath);
         let content = '';
         let officeParseAst: OfficeParserAST = null;
-        let pdfParseCache: any = null;
 
         try {
             if (ext === '.pdf') {
-                // ... inside extractContent:
-                if (!pdfParseCache) pdfParseCache = await import('pdf-parse/lib/pdf-parse.js');
-                const pdfParseM = pdfParseCache.default || pdfParseCache;
+                const pdfParseM = await import('pdf-parse/lib/pdf-parse.js');
                 // @ts-ignore
                 const pdfParse = pdfParseM.default || pdfParseM;
                 const dataBuffer = await fs.readFile(filePath);
@@ -264,7 +261,8 @@ export class FileContentExtractor {
             // If this ever fires, it's worth investigating why /tokenize failed
             // for this specific file rather than trusting the fallback long-term.
             console.error(`Tokenizer fit failed for a file, falling back to a conservative char cap: ${e}`);
-            // content = content.length > 500 ? content.slice(0, 500) + '...' : content;
+            //content = content.length > 500 ? content.slice(0, 500) + '...' : content;
+            // AFTER: Scale up the fallback roughly proportional to your new target limit
             content = content.length > 12000 ? content.slice(0, 12000) + '...' : content;
         }
 

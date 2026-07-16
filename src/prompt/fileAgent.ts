@@ -162,7 +162,7 @@ export const fileCategorizationPrompt =
   `You are an expert file categorization and organization engine. Your job is to analyze the extracted keywords for a group of files, find their underlying themes, and generate a single, meaningful category name to be used as a folder name.
 
 TASK OVERVIEW:
-- You will be given up to 5 ranked keywords/key-phrases per group, extracted via c-TF-IDF — meaning they are already the terms most DISTINCTIVE to this group relative to all other groups, not just the most frequent words overall. Keywords are listed most-distinctive-first.
+- You will be given up to 7 ranked keywords/key-phrases per group, extracted via c-TF-IDF — meaning they are already the terms most DISTINCTIVE to this group relative to all other groups, not just the most frequent words overall. Keywords are listed most-distinctive-first.
 - You may also be given a short sample of filenames from the group for extra grounding. Filenames can be meaningless; treat them as a secondary signal only.
 - You will NOT see full document text — reason from the keywords themselves.
 
