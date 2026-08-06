@@ -1,5 +1,4 @@
 import * as path from 'path';
-// import { defineChatSessionFunction } from 'node-llama-cpp';
 import { fileAgentRecord } from '../src/state/fileAgentState.js';
 import type { FolderPlanEntry, FolderPreviewEntry, fileStatus } from '../src/state/fileAgentState.js';
 import { FileClassificationTool } from './fileClassificationTool.js';
@@ -113,87 +112,6 @@ export const GetCategoriesOfImages = ({
             return JSON.stringify(categorizedSummary);
         } catch (e: any) {
             return `Error during image analysis: ${e.message}`;
-        }
-    }
-});
-
-export const GetCategoriesoffilesofspecificextension = ({
-    description: "Analyzes the contents of files for a given extension, generating embeddings and using an AI clustering algorithm to automatically group them into highly descriptive category folder names. Returns a dictionary mapping the generated folder name to a brief list of the top 3 files in that category to save context. Use this to automatically generate folder names based on actual file content.",
-    params: {
-        type: "object",
-        properties: {
-            path: {
-                type: "string",
-                description: "Absolute path of the folder to analyze."
-            },
-            ProcessId: {
-                type: "string",
-                description: "The unique process id for this session, provided by the user."
-            },
-            extension:{
-                type: "string",
-                description: "The file extension which you want to get categorical summary of. eg: `.pdf`"
-            },
-            statusMessage: {
-                type: "string",
-                description: "A short, friendly first-person message telling the user what you're about to do, e.g. 'Analyzing your PDF files...'. This will be shown directly to the user."
-            }
-        },
-        required: ["extension", "ProcessId", "statusMessage"]
-    },
-    async handler(params: {ProcessId: string, extension: string, statusMessage: string}): Promise<string> {
-        console.log(`\x1b[95m[Worker Tool]\x1b[0m GetCategoricalSummaryOfFiles → ${params.ProcessId}`);
-        emitAgentMessage(params.statusMessage);
-        try {
-            const state = fileAgentRecord[params.ProcessId];
-            if (!state) return "Error: Invalid ProcessId.";
-            if (!state.workspacePath) return "Error: workspacePath not set in state.";
-
-            const files  = state.fileByExtension[params.extension]
-            if (files == undefined || files.length < 0) return "No files found with this extension. Report this to User.";
-            
-            state.lastReadInd = 0;
-
-            // Extract unmatched file paths to be grouped (using actual absolute path in fileStatus model)
-            const filePaths = files.filter(x => x.planConfirmed == false).map(x => path.join(state.workspacePath, x.fileName));
-            if (filePaths.length === 0) return "All files of this extension are already processed.";
-
-            // Delegate to the new AI Clustering logic using embeddings & AgglomerativeClustering
-            const categorized = await FileClassificationTool.clusterAndNameFiles(filePaths, {
-                processId: params.ProcessId,
-                groupId: `cluster_${params.ProcessId}_${params.extension}`,
-                label: params.extension
-            });
-
-            // Update the category property of the files in the state
-            for (const [folderName, fileNames] of Object.entries(categorized)) {
-                for (const fileName of fileNames) {
-                    if (state.fileRecord[fileName]) {
-                        state.fileRecord[fileName].category = folderName;
-                    }
-                }
-            }
-
-            // Auto-compute the folder plan now — the LLM never needs to construct paths itself.
-            const extClean = params.extension.replace('.', '').toLowerCase();
-            const baseFolder = `${state.workspacePath}/${extClean}`;
-            state.proposedFolderPlan[params.extension] = Object.keys(categorized).map(category => ({
-                category,
-                folder: `${baseFolder}/${category}`
-            }));
-
-            // Prepare a summarized payload for the master agent (max 3 files per category) to save tokens
-            const categorizedSummary: Record<string, string[]> = {};
-            for (const [folderName, fileNames] of Object.entries(categorized)) {
-                categorizedSummary[folderName] = fileNames.slice(0, 3);
-                if (fileNames.length > 3) {
-                    categorizedSummary[folderName].push(`...and ${fileNames.length - 3} more files`);
-                }
-            }
-
-            return JSON.stringify(categorizedSummary);
-        } catch (e: any) {
-            return `Error during analysis: ${e.message}`;
         }
     }
 });

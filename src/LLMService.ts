@@ -1,4 +1,5 @@
 import OpenAI from "openai";
+import { OpenAIProvider, OpenAIChatCompletionsModel } from "@openai/agents";
 import { ApiConfig } from "./ApiConfig.js";
 
 export class LLMService {
@@ -7,12 +8,16 @@ export class LLMService {
     // We point to the local LLaMA.cpp HTTP Server. Default port is 8080.
     public openai: OpenAI;
     public modelName = "local-model"; // llama-server ignores this or uses loaded model
+    public provider: OpenAIProvider;
+    public agentModel: OpenAIChatCompletionsModel;
 
     private constructor() {
         this.openai = new OpenAI({
             baseURL: ApiConfig.llmApiEndpoint,
             apiKey: ApiConfig.llmApiKey, // Required by SDK, ignored by llama-server by default
         });
+        this.provider = new OpenAIProvider({ openAIClient: this.openai });
+        this.agentModel = new OpenAIChatCompletionsModel(this.openai, this.modelName);
     }
 
     public static async getInstance(): Promise<LLMService> {
@@ -31,3 +36,4 @@ export class LLMService {
         ];
     }
 }
+

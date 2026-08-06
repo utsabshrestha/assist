@@ -1,13 +1,15 @@
 /// <reference types="node" />
 
 import { LLMService } from "./LLMService.js";
+import { Agent, tool as createAgentTool } from "@openai/agents";
 import OpenAI from "openai";
 import { emitAgentMessage, emitLog } from "../electron/ipcBridge.js";
 
 export class OpenAISession {
     public messages: OpenAI.Chat.Completions.ChatCompletionMessageParam[] = [];
-    
-    constructor(private llm: LLMService, systemPrompt: string) {
+    private agent: Agent | null = null;
+
+    constructor(private llm: LLMService, private systemPrompt: string) {
         this.messages.push({ role: "system", content: systemPrompt });
     }
 
@@ -15,6 +17,8 @@ export class OpenAISession {
         this.messages.push({ role: "user", content: userPrompt });
 
         let tools: OpenAI.Chat.Completions.ChatCompletionTool[] = [];
+        const agentTools: any[] = [];
+
         if (options.functions) {
             tools = Object.entries(options.functions).map(([name, tool]) => ({
                 type: "function",
@@ -24,7 +28,29 @@ export class OpenAISession {
                     parameters: tool.params || tool.parameters
                 }
             }));
+
+            for (const [name, toolDef] of Object.entries(options.functions)) {
+                agentTools.push(createAgentTool({
+                    name,
+                    description: toolDef.description || name,
+                    parameters: toolDef.params || toolDef.parameters || { type: "object", properties: {} },
+                    execute: async (args: any) => {
+                        if (toolDef.handler) {
+                            return await toolDef.handler(args);
+                        }
+                        return "Success";
+                    }
+                }));
+            }
         }
+
+        // Initialize @openai/agents Agent instance representation
+        this.agent = new Agent({
+            name: "WorkerAgent",
+            instructions: this.systemPrompt,
+            model: this.llm.agentModel,
+            tools: agentTools
+        });
 
         const toolNames = Object.keys(options.functions || {});
         let noToolCallRetries = 0;
@@ -45,10 +71,6 @@ export class OpenAISession {
 
             const hasToolCalls = !!msg.tool_calls && msg.tool_calls.length > 0;
 
-            // Tool-only worker replied with plain text instead of calling a tool —
-            // nudge it to retry, but only if it hasn't already done its tool work this turn.
-            // Once a tool has been called, a later plain-text reply is the model wrapping up
-            // (e.g. a final confirmation message), not skipping a required call.
             if (options.forceToolUse && !hasToolCalls && !madeAnyToolCallThisPrompt && noToolCallRetries < MAX_NO_TOOL_CALL_RETRIES) {
                 noToolCallRetries++;
                 this.messages.push(msg);
@@ -75,10 +97,10 @@ export class OpenAISession {
 
                     // Log tool calls to the side panel
                     emitLog(`${funcCall.name}(${funcCall.arguments})`, 'tool_call', funcCall.name);
-                    
+
                     const funcName = funcCall.name;
                     const args = JSON.parse(funcCall.arguments);
-                    
+
                     if (options.functions && options.functions[funcName] && options.functions[funcName].handler) {
                         try {
                             const result = await options.functions[funcName].handler(args);
@@ -125,7 +147,7 @@ export class OpenAISession {
                 break;
             }
         }
-        
+
         return this.messages[this.messages.length - 1]?.content as string;
     }
 }
@@ -139,3 +161,4 @@ class WorkerAgent {
 }
 
 export const workerAgent = new WorkerAgent();
+

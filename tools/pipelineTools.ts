@@ -47,16 +47,20 @@ export const ErrorEncountered = ({
             Error: {
                 type: "string",
                 description: "The error message you have encountered."
+            },
+            NameOfAgent: {
+                type: "string",
+                description: "The name of the agent you are calling this tool from."
             }
         },
-        required: ["ProcessId"]
+        required: ["ProcessId", "Error", "NameOfAgent"]
     },
-    async handler(params: { ProcessId: string, Error: string }): Promise<string> {
+    async handler(params: { ProcessId: string, Error: string, NameOfAgent: string }): Promise<string> {
         const state = fileAgentRecord[params.ProcessId];
         if (!state) return "Error: Invalid ProcessId.";
 
-        emitLog('Error Encountered in pipeline', 'error');
-        emitLog(params.Error, 'error');
+        emitLog('Error Encountered in pipeline', 'error', params.NameOfAgent);
+        emitLog(params.Error, 'error', params.NameOfAgent);
         return ERROR_ENCOUNTERED;
     }
 });

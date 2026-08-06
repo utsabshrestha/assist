@@ -94,6 +94,11 @@ export class fileAgentState {
      */
     public proposedFolderPlan: Record<string, FolderPlanEntry[]> = {};
     /**
+     * Stores raw MCP cluster outputs by extension (e.g. '.pdf') to preserve token economy
+     * and allow two-step tool processing.
+     */
+    public mcpClusterResults: Record<string, any> = {};
+    /**
      * Category → extension list computed by GetFolderSummaryTool's scan.
      * Read directly by PresentScopeSelectionTool — never reconstructed by the LLM.
      */

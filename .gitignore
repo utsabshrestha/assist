@@ -17,3 +17,17 @@ npm-debug.log*
 
 # OS specific files
 .DS_Store
+
+.env
+.venv/
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.ruff_cache/
+cache/
+dist/
+build/
+*.egg-info/
+.DS_Store
+
+file-organizer-mcp/

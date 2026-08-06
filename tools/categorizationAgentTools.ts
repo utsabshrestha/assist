@@ -16,7 +16,8 @@ import { fileAgentRecord, fileAgentState, fileStatus } from '../src/state/fileAg
 import type { TodoStatus } from '../src/state/fileAgentState.js';
 import { LLMService } from '../src/LLMService.js';
 import { documentWorkerAgentSystemPrompt, nonDocumentWorkerAgentSystemPrompt, imageWorkerAgentSystemPrompt } from '../src/prompt/fileAgent.js';
-import { GetCategoriesoffilesofspecificextension, GetCategoriesOfImages, UpdateCategoryNameTool, FinalizeThefolderforthefilesforEachExtensions, workerCompletionStatus, FinalizeThefolderforImages, FinalizeThefolderforNonDocuments, GetCategoriesForNonDocuments, UpdateCategoryNameForNonDocumentsTool, UpdateCategoryNameForImagesTool, PresentDocumentFolderPlanTool, PresentImageFolderPlanTool, PresentNonDocumentFolderPlanTool } from './fileCategorizationTools.js';
+import { GetCategoriesOfImages, UpdateCategoryNameTool, FinalizeThefolderforthefilesforEachExtensions, workerCompletionStatus, FinalizeThefolderforImages, FinalizeThefolderforNonDocuments, GetCategoriesForNonDocuments, UpdateCategoryNameForNonDocumentsTool, UpdateCategoryNameForImagesTool, PresentDocumentFolderPlanTool, PresentImageFolderPlanTool, PresentNonDocumentFolderPlanTool } from './fileCategorizationTools.js';
+import { McpClusteringAgent } from './mcpClusteringAgentTools.js';
 import { ERROR_ENCOUNTERED, ErrorEncountered, HandOffToExecutionAgent } from '../tools/pipelineTools.js';
 import { ViewTodoListTool, UpdateTodoListTool, MemoryScratchpadTool} from '../tools/planningAgentTools.js';
 import { emitLog, emitTodoUpdate, emitAgentMessage } from '../electron/ipcBridge.js';
@@ -92,6 +93,14 @@ async function CategorizedDocument(processId : string, extension : string, llmSe
             const MAX_AUTO_CONTINUE = 5;
             let autoContinueCount = 0;
 
+            const docTools = {
+                McpClusteringAgent,
+                PresentDocumentFolderPlanTool,
+                UpdateCategoryNameTool,
+                FinalizeThefolderforthefilesforEachExtensions,
+                ErrorEncountered
+            };
+
             const runLoop = async () => {
                 if (++autoContinueCount > MAX_AUTO_CONTINUE) {
                     emitLog(`Docs Worker (${extension}) stalled without finalizing — aborting.`, 'error', 'DocWorkerAgent');
@@ -101,7 +110,7 @@ async function CategorizedDocument(processId : string, extension : string, llmSe
 
                 let response = '';
                 try {
-                    response = await session.prompt('Continue with the next step.', { functions: { GetCategoriesoffilesofspecificextension, PresentDocumentFolderPlanTool, UpdateCategoryNameTool, FinalizeThefolderforthefilesforEachExtensions, ErrorEncountered }, forceToolUse: true });
+                    response = await session.prompt('Continue with the next step.', { functions: docTools, forceToolUse: true });
                     emitLog(response, 'info', 'DocWorkerAgent');
                 } catch (e: any) {
                     emitLog(`Error: ${e.message}`, 'error', 'DocWorkerAgent');
@@ -119,7 +128,7 @@ async function CategorizedDocument(processId : string, extension : string, llmSe
             };
 
             const response = await session.prompt(`Start organizing ${extension} files for ProcessId: ${processId} and path: ${state.workspacePath}`,
-                { functions: { GetCategoriesoffilesofspecificextension, PresentDocumentFolderPlanTool, UpdateCategoryNameTool, FinalizeThefolderforthefilesforEachExtensions, ErrorEncountered }, forceToolUse: true });
+                { functions: docTools, forceToolUse: true });
             emitLog(response, 'info', 'DocWorkerAgent');
 
             if (workerCompletionStatus[`${processId}_${extension.replaceAll(".","")}`]) {

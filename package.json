@@ -25,6 +25,8 @@
   },
   "homepage": "https://github.com/utsabshrestha/assist#readme",
   "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.29.0",
+    "@openai/agents": "^0.13.5",
     "epub2": "^3.0.2",
     "lucide-react": "^1.21.0",
     "mammoth": "^1.12.0",

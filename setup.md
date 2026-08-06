@@ -35,3 +35,6 @@ npx tsx agent.ts
 \`\`\`
 
 The model will automatically load `Qwen3.5-9B-Q5_K_M.gguf` from disk into your Mac's GPU memory, and the chat interface will appear.
+
+npm run dev:renderer            
+llama-server -hf unsloth/Ministral-3-8B-Reasoning-2512-GGUF --port 8080 -c 32768  
