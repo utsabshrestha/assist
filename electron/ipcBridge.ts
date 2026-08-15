@@ -13,7 +13,7 @@ import { EventEmitter } from 'events';
 import type { FolderPlanEntry, CategorySummary, TodoItem, FolderPreviewEntry, PlanScope, PlanScopeGroup } from '../src/state/fileAgentState.js';
 
 export type MessageType = 'agent' | 'user' | 'system' | 'task_update';
-export type LogType = 'tool_call' | 'tool_result' | 'pipeline' | 'error' | 'info';
+export type LogType = 'tool_call' | 'tool_result' | 'pipeline' | 'error' | 'info' | 'mcp';
 export type AgentStage = 'planning' | 'categorization' | 'execution' | 'done' | 'idle';
 
 // Re-export so consumers don't need a separate import

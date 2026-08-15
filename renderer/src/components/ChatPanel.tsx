@@ -1,5 +1,6 @@
-import React, { useEffect, useRef, useState, useCallback, useMemo } from 'react';
-import { ClipboardCheck } from 'lucide-react';
+import React, { useState, useCallback, useMemo } from 'react';
+import { ChevronDown, ClipboardCheck } from 'lucide-react';
+import { useSmartScroll } from '../hooks/useSmartScroll.js';
 import type { AgentMessage, AgentStage, FolderReviewRequest, ScopeSelectionRequest, ExecutionPlanRequest, CategorySummary } from '../types/electron.js';
 import type { TimelineRow } from '../App.js';
 import { TimelineEntry } from './TimelineEntry.js';
@@ -36,11 +37,8 @@ export const ChatPanel: React.FC<ChatPanelProps> = ({
 }) => {
   const [selectedFolder, setSelectedFolder] = useState<string>('');
   const [folderError, setFolderError] = useState<string>('');
-  const bottomRef = useRef<HTMLDivElement>(null);
 
-  useEffect(() => {
-    bottomRef.current?.scrollIntoView({ behavior: 'smooth' });
-  }, [timelineRows, isThinking]);
+  const { scrollRef, bottomRef, isAtBottom, scrollToBottom } = useSmartScroll([timelineRows, isThinking]);
 
   // Native folder picker
   const handleSelectFolder = useCallback(async () => {
@@ -91,7 +89,7 @@ export const ChatPanel: React.FC<ChatPanelProps> = ({
       )}
 
       {/* Timeline / welcome area */}
-      <div className="flex-1 overflow-y-auto px-6 py-6">
+      <div ref={scrollRef} className="flex-1 overflow-y-auto px-6 py-6 relative">
 
         {/* Welcome screen */}
         {!hasStarted && (
@@ -191,6 +189,22 @@ export const ChatPanel: React.FC<ChatPanelProps> = ({
         )}
 
         <div ref={bottomRef} />
+
+        {/* Jump-to-bottom pill */}
+        {hasStarted && !isAtBottom && (
+          <div className="sticky bottom-4 flex justify-center pointer-events-none">
+            <button
+              onClick={scrollToBottom}
+              className="pointer-events-auto flex items-center gap-1.5 px-3 py-1.5 rounded-full
+                bg-[#1c1917]/80 backdrop-blur-sm text-white text-xs font-medium
+                shadow-lg hover:bg-[#1c1917] transition-all duration-150
+                animate-[fadeSlideUp_0.2s_ease-out]"
+            >
+              <ChevronDown size={12} strokeWidth={2.5} />
+              New content
+            </button>
+          </div>
+        )}
       </div>
     </div>
   );

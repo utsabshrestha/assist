@@ -1,46 +1,72 @@
-import React, { useEffect, useRef, useState } from 'react';
-import { ChevronRight } from 'lucide-react';
+import React, { useState } from 'react';
+import { ChevronDown, ChevronRight } from 'lucide-react';
 import type { AgentLog } from '../types/electron.js';
+import { useSmartScroll } from '../hooks/useSmartScroll.js';
+import { JsonTree } from './JsonTree.js';
 
 interface LogGroupProps {
   name: string;
   entries: AgentLog[];
 }
 
+function tryParseJson(content: string): unknown | null {
+  const trimmed = content.trim();
+  if (!trimmed.startsWith('{') && !trimmed.startsWith('[')) return null;
+  try { return JSON.parse(trimmed); } catch { return null; }
+}
+
 export const LogGroup: React.FC<LogGroupProps> = ({ name, entries }) => {
   const [collapsed, setCollapsed] = useState(true);
-  const bottomRef = useRef<HTMLDivElement>(null);
-
-  useEffect(() => {
-    if (!collapsed) bottomRef.current?.scrollIntoView({ block: 'end' });
-  }, [entries.length, collapsed]);
+  const { scrollRef, bottomRef, isAtBottom, scrollToBottom } = useSmartScroll([entries.length, collapsed]);
 
   return (
-    <div className="border-l-2 border-[#e7e5e4] pl-3 pr-2 py-1.5">
+    <div className="log-group">
       <button
         onClick={() => setCollapsed(c => !c)}
-        className="flex items-center gap-1.5 w-full text-left cursor-pointer"
+        className="log-group-header"
       >
         <ChevronRight
           size={10}
           strokeWidth={2.5}
-          className={`flex-shrink-0 text-[#a8a29e] transition-transform duration-150 ${collapsed ? '' : 'rotate-90'}`}
+          className={`flex-shrink-0 text-[#4a5568] transition-transform duration-150 ${collapsed ? '' : 'rotate-90'}`}
         />
-        <span className="text-[10px] font-semibold uppercase tracking-wide text-[#0284c7]">{name}</span>
-        <span className="text-[10px] text-[#a8a29e] font-mono">· {entries.length} entries</span>
+        <span className="log-group-name">{name}</span>
+        <span className="log-group-count">· {entries.length} results</span>
       </button>
 
       {!collapsed && (
-        <div className="mt-1.5 max-h-48 overflow-y-auto rounded bg-[#1c1917] px-2.5 py-2">
-          {entries.map((log, i) => (
-            <p
-              key={`${log.timestamp}-${i}`}
-              className="text-[10px] text-[#d6d3d1] font-mono leading-relaxed whitespace-pre-wrap break-all"
-            >
-              {log.content}
-            </p>
-          ))}
-          <div ref={bottomRef} />
+        <div className="log-group-body relative">
+          <div ref={scrollRef} className="log-group-scroll">
+            {entries.map((log, i) => {
+              const json = tryParseJson(log.content);
+              return (
+                <div key={`${log.timestamp}-${i}`} className="log-group-item">
+                  {json ? (
+                    <div className="selectable">
+                      <JsonTree data={json} depth={0} maxDepth={1} />
+                    </div>
+                  ) : (
+                    <p className="log-group-text selectable">{log.content}</p>
+                  )}
+                </div>
+              );
+            })}
+            <div ref={bottomRef} />
+          </div>
+
+          {!isAtBottom && (
+            <div className="absolute bottom-2 left-0 right-0 flex justify-center pointer-events-none">
+              <button
+                onClick={scrollToBottom}
+                className="pointer-events-auto flex items-center gap-1 px-2.5 py-1 rounded-full
+                  bg-[#2a3048]/90 backdrop-blur-sm text-[#8892b0] text-[9px] font-medium
+                  shadow hover:bg-[#323a55] transition-all duration-150"
+              >
+                <ChevronDown size={9} strokeWidth={2.5} />
+                more
+              </button>
+            </div>
+          )}
         </div>
       )}
     </div>

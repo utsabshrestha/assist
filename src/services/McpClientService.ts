@@ -103,7 +103,7 @@ export class McpClientService {
     private transport: StreamableHTTPClientTransport | null = null;
     private isConnected = false;
 
-    private constructor() {}
+    private constructor() { }
 
     public static getInstance(): McpClientService {
         if (!McpClientService.instance) {
@@ -156,7 +156,9 @@ export class McpClientService {
             const client = await this.connect();
             const MCP_TIMEOUT_MS = 5 * 60 * 1000; // 5 min — BERTopic can be slow
 
-            emitLog(`MCP call → ${toolName}(${JSON.stringify(args)})`, 'pipeline', 'MCPClient');
+            emitLog(`MCP call → ${toolName} \n arguments : ${args}`, 'mcp', 'MCPClient');
+            const param = JSON.stringify(args).slice(0, 30);
+            emitLog(`MCP call → ${toolName}(${param} ${param.length > 30 ? '...' : ''})`, 'pipeline', 'MCPClient');
 
             const response = await client.callTool(
                 { name: toolName, arguments: args },
@@ -176,7 +178,8 @@ export class McpClientService {
                 throw new Error(`MCP error in '${toolName}': ${err?.code ?? ''} ${err?.message ?? ''}`);
             }
 
-            emitLog(`MCP ← ${toolName}: ${rawJson.slice(0, 300)}${rawJson.length > 300 ? '...' : ''}`, 'tool_result', 'MCPClient');
+            // emitLog(`MCP ← ${toolName}: ${rawJson.slice(0, 300)}${rawJson.length > 300 ? '...' : ''}`, 'mcp', 'MCPClient');
+            emitLog(`MCP ← ${toolName}: ${rawJson}`, 'mcp', 'MCPClient');
             return parsed;
         } catch (error: any) {
             this.resetConnection();
@@ -230,6 +233,11 @@ export class McpClientService {
 
         emitLog(
             `evaluate_clustering: folder=${folderPath} exts=[${extensions.join(',')}] strategy=${strategy ?? 'auto'}`,
+            'mcp', 'MCPClient'
+        );
+
+        emitLog(
+            `evaluate_clustering: folder=${folderPath} exts=[${extensions.join(',')}] strategy=${strategy ?? 'auto'}`,
             'pipeline', 'MCPClient'
         );
 
@@ -243,6 +251,7 @@ export class McpClientService {
      * the agent context directly.
      */
     public async getClusteringResult(runId: string): Promise<McpFullClusteringResult> {
+        emitLog(`get_clustering_result: run_id=${runId}`, 'mcp', 'MCPClient');
         emitLog(`get_clustering_result: run_id=${runId}`, 'pipeline', 'MCPClient');
         return await this.callMcpTool('get_clustering_result', { run_id: runId }) as McpFullClusteringResult;
     }
@@ -251,6 +260,7 @@ export class McpClientService {
      * OPTIONAL cleanup — deletes a rejected or unused clustering run by run_id.
      */
     public async discardClusteringResult(runId: string): Promise<McpDiscardResult> {
+        emitLog(`discard_clustering_result: run_id=${runId}`, 'mcp', 'MCPClient');
         emitLog(`discard_clustering_result: run_id=${runId}`, 'pipeline', 'MCPClient');
         return await this.callMcpTool('discard_clustering_result', { run_id: runId }) as McpDiscardResult;
     }

@@ -18,6 +18,7 @@ import { LLMService } from '../src/LLMService.js';
 import { documentWorkerAgentSystemPrompt, nonDocumentWorkerAgentSystemPrompt, imageWorkerAgentSystemPrompt } from '../src/prompt/fileAgent.js';
 import { GetCategoriesOfImages, UpdateCategoryNameTool, FinalizeThefolderforthefilesforEachExtensions, workerCompletionStatus, FinalizeThefolderforImages, FinalizeThefolderforNonDocuments, GetCategoriesForNonDocuments, UpdateCategoryNameForNonDocumentsTool, UpdateCategoryNameForImagesTool, PresentDocumentFolderPlanTool, PresentImageFolderPlanTool, PresentNonDocumentFolderPlanTool } from './fileCategorizationTools.js';
 import { McpClusteringAgent } from './mcpClusteringAgentTools.js';
+import { McpImageClusteringAgent } from './mcpImageClusteringAgentTools.js';
 import { ERROR_ENCOUNTERED, ErrorEncountered, HandOffToExecutionAgent } from '../tools/pipelineTools.js';
 import { ViewTodoListTool, UpdateTodoListTool, MemoryScratchpadTool} from '../tools/planningAgentTools.js';
 import { emitLog, emitTodoUpdate, emitAgentMessage } from '../electron/ipcBridge.js';
@@ -257,7 +258,7 @@ const ImageCategorizationAgent = ({
 
                 let response = '';
                 try {
-                    response = await session.prompt('Continue with the next step.', { functions: { GetCategoriesOfImages, PresentImageFolderPlanTool, UpdateCategoryNameForImagesTool, FinalizeThefolderforImages, ErrorEncountered  }, forceToolUse: true });
+                    response = await session.prompt('Continue with the next step.', { functions: { McpImageClusteringAgent, PresentImageFolderPlanTool, UpdateCategoryNameForImagesTool, FinalizeThefolderforImages, ErrorEncountered  }, forceToolUse: true });
                     emitLog(response, 'info', 'ImageWorkerAgent');
                 } catch (e: any) {
                     emitLog(`Error: ${e.message}`, 'error', 'ImageWorkerAgent');
@@ -275,7 +276,7 @@ const ImageCategorizationAgent = ({
             };
 
             const response = await session.prompt(`Start organizing these image extensions: [${extensions.join(', ')}] for ProcessId: ${params.ProcessId}, TaskId: ${params.TaskId} and path: ${state.workspacePath}`,
-            { functions: { GetCategoriesOfImages, PresentImageFolderPlanTool, UpdateCategoryNameForImagesTool, FinalizeThefolderforImages, ErrorEncountered  }, forceToolUse: true });
+            { functions: { McpImageClusteringAgent, PresentImageFolderPlanTool, UpdateCategoryNameForImagesTool, FinalizeThefolderforImages, ErrorEncountered  }, forceToolUse: true });
 
             emitLog(response, 'info', 'ImageWorkerAgent');
             if(response.includes(ERROR_ENCOUNTERED)){

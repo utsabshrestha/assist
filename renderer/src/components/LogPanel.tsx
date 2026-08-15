@@ -1,8 +1,10 @@
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useState } from 'react';
+import { ChevronDown } from 'lucide-react';
 import type { AgentLog, TodoItem } from '../types/electron.js';
 import { LogEntry } from './LogEntry.js';
 import { LogGroup } from './LogGroup.js';
 import { TodoListPanel } from './TodoListPanel.js';
+import { useSmartScroll } from '../hooks/useSmartScroll.js';
 
 type LogRow =
   | { kind: 'single'; log: AgentLog }
@@ -33,65 +35,55 @@ interface LogPanelProps {
 
 const FILTERS = [
   { value: 'tasks',       label: 'Task List' },
-  { value: 'all',         label: 'All'      },
-  { value: 'tool_call',   label: 'Calls'    },
-  { value: 'tool_result', label: 'Results'  },
-  { value: 'pipeline',    label: 'Pipeline' },
-  { value: 'error',       label: 'Errors'   },
+  { value: 'all',         label: 'All'       },
+  { value: 'tool_call',   label: 'Calls'     },
+  { value: 'tool_result', label: 'Results'   },
+  { value: 'pipeline',    label: 'Pipeline'  },
+  { value: 'error',       label: 'Errors'    },
+  { value: 'mcp',         label: 'MCP'       },
 ];
 
 export const LogPanel: React.FC<LogPanelProps> = ({ logs, todoList, isVisible }) => {
-  const bottomRef = useRef<HTMLDivElement>(null);
   const [filter, setFilter] = useState<string>('tasks');
-
-  useEffect(() => {
-    if (filter !== 'tasks') bottomRef.current?.scrollIntoView({ behavior: 'smooth' });
-  }, [logs, filter]);
+  const { scrollRef, bottomRef, isAtBottom, scrollToBottom } = useSmartScroll([logs, filter]);
 
   const filteredLogs = filter === 'all' ? logs : logs.filter(l => l.type === filter);
-  const errorCount = logs.filter(l => l.type === 'error').length;
-  const rows = groupConsecutiveLogs(filteredLogs);
+  const errorCount   = logs.filter(l => l.type === 'error').length;
+  const rows         = groupConsecutiveLogs(filteredLogs);
 
   return (
-    <div className={`flex flex-col h-full bg-white border-l border-[#e7e5e4] overflow-hidden
-      transition-all duration-200 ${isVisible ? 'opacity-100' : 'opacity-0 pointer-events-none'}`}>
+    <div className={`log-panel ${isVisible ? 'opacity-100' : 'opacity-0 pointer-events-none'}`}>
 
       {/* Header */}
-      <div className="flex items-center justify-between px-4 py-2.5 border-b border-[#e7e5e4] bg-[#fafafa] flex-shrink-0">
-        <h2 className="text-xs font-semibold text-[#57534e] uppercase tracking-wider">
+      <div className="log-panel-header">
+        <h2 className="log-panel-title">
           {filter === 'tasks' ? 'Task List' : 'Activity Log'}
         </h2>
-        <span className="text-[10px] text-[#a8a29e] font-mono">
+        <span className="log-panel-count">
           {filter === 'tasks' ? todoList.length : logs.length}
         </span>
       </div>
 
-      {/* Tabs */}
-      <div className="flex gap-0 border-b border-[#e7e5e4] flex-shrink-0 overflow-x-auto">
+      {/* Tab bar */}
+      <div className="log-tab-bar">
         {FILTERS.map(opt => {
           const count = opt.value === 'tasks'
             ? todoList.length
-            : opt.value === 'all' ? logs.length : logs.filter(l => l.type === opt.value).length;
-          const isError = opt.value === 'error' && errorCount > 0;
+            : opt.value === 'all'
+              ? logs.length
+              : logs.filter(l => l.type === opt.value).length;
+          const isErr = opt.value === 'error' && errorCount > 0;
+          const isActive = filter === opt.value;
           return (
             <button
               key={opt.value}
               id={`log-filter-${opt.value}`}
               onClick={() => setFilter(opt.value)}
-              className={`
-                px-3 py-2 text-[11px] font-medium whitespace-nowrap flex items-center gap-1.5
-                border-b-2 transition-colors duration-100
-                ${filter === opt.value
-                  ? 'border-[#c2613d] text-[#c2613d] bg-[#fdf1ec]'
-                  : 'border-transparent text-[#78716c] hover:text-[#1c1917] hover:bg-[#f5f5f4]'
-                }
-              `}
+              className={`log-tab ${isActive ? 'log-tab-active' : 'log-tab-inactive'}`}
             >
               {opt.label}
               {count > 0 && (
-                <span className={`text-[9px] px-1 py-px rounded font-semibold
-                  ${isError ? 'bg-red-100 text-red-600' : 'bg-[#f5f5f4] text-[#78716c]'}
-                `}>
+                <span className={`log-tab-badge ${isErr ? 'log-tab-badge-error' : ''}`}>
                   {count}
                 </span>
               )}
@@ -101,16 +93,16 @@ export const LogPanel: React.FC<LogPanelProps> = ({ logs, todoList, isVisible })
       </div>
 
       {/* Content */}
-      <div className="flex-1 overflow-y-auto">
+      <div ref={scrollRef} className="log-panel-content">
         {filter === 'tasks' ? (
           <TodoListPanel todoList={todoList} />
         ) : filteredLogs.length === 0 ? (
-          <div className="flex flex-col items-center justify-center h-full gap-2 text-center py-8">
-            <p className="text-sm text-[#a8a29e]">No activity yet</p>
-            <p className="text-xs text-[#c4bfbb]">Tool calls and pipeline events will appear here</p>
+          <div className="log-empty-state">
+            <p className="log-empty-primary">No activity yet</p>
+            <p className="log-empty-secondary">Tool calls and pipeline events will appear here</p>
           </div>
         ) : (
-          <div className="divide-y divide-[#f5f5f4]">
+          <div className="log-entries-list">
             {rows.map((row, i) =>
               row.kind === 'group' && row.entries.length > 1 ? (
                 <LogGroup key={`group-${row.entries[0]!.timestamp}-${i}`} name={row.name} entries={row.entries} />
@@ -124,6 +116,19 @@ export const LogPanel: React.FC<LogPanelProps> = ({ logs, todoList, isVisible })
           </div>
         )}
         <div ref={bottomRef} />
+
+        {/* Jump-to-bottom pill */}
+        {filter !== 'tasks' && !isAtBottom && (
+          <div className="sticky bottom-3 flex justify-center pointer-events-none">
+            <button
+              onClick={scrollToBottom}
+              className="log-jump-btn pointer-events-auto"
+            >
+              <ChevronDown size={11} strokeWidth={2.5} />
+              New logs
+            </button>
+          </div>
+        )}
       </div>
     </div>
   );
