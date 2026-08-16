@@ -1,0 +1,46 @@
+[build-system]
+requires = ["setuptools>=69", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "file-organizer-mcp"
+version = "0.2.0"
+description = "A sequential Streamable HTTP MCP server for clustering modern document files with Nomic embeddings and BERTopic."
+readme = "README.md"
+requires-python = ">=3.11,<=3.14.6"
+dependencies = [
+  "mcp>=1.28,<2",
+  "pydantic>=2.8,<3",
+  "pydantic-settings>=2.4,<3",
+  "bertopic>=0.17,<0.18",
+  "hdbscan>=0.8.40,<0.9",
+  "joblib>=1.4,<2",
+  "llama-cpp-python>=0.3.9,<0.4",
+  "numpy>=1.26,<3",
+  "pypdf>=5,<7",
+  "python-docx>=1.1,<2",
+  "python-pptx>=1.0,<2",
+  "openpyxl>=3.1,<4",
+  "beautifulsoup4>=4.12,<5",
+  "defusedxml>=0.7,<1",
+  "EbookLib>=0.18,<1",
+  "scikit-learn>=1.5,<2",
+  "umap-learn>=0.5.7,<0.6"
+]
+
+[project.optional-dependencies]
+dev = ["pytest>=8,<9", "pytest-asyncio>=0.24,<1", "ruff>=0.9,<1"]
+
+[project.scripts]
+file-organizer-mcp = "file_organizer_mcp.server:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.pytest.ini_options]
+pythonpath = ["src"]
+testpaths = ["tests"]
+asyncio_mode = "auto"
+
+[tool.ruff]
+line-length = 100
