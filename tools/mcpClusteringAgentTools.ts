@@ -52,6 +52,7 @@ async function buildMcpBridgeTools(
 ): Promise<Record<string, any>> {
     let mcpToolList: McpToolDefinition[] = [];
     try {
+        emitAgentMessage(`Getting MCP tools...`, 'system');
         mcpToolList = await mcpClient.listMcpTools();
     } catch (e: any) {
         emitLog(`Failed to list MCP tools for bridge: ${e.message}`, 'error', 'McpClusteringAgent');
@@ -123,12 +124,8 @@ const FetchAndProcessClusteringResultTool = {
         run_id: string;
         statusMessage: string;
     }): Promise<string> {
-        emitLog(
-            `FetchAndProcessClusteringResultTool → ${params.ProcessId} | ${params.extension} | run_id=${params.run_id}`,
-            'tool_call',
-            'McpClusteringAgent'
-        );
-        emitAgentMessage(params.statusMessage);
+
+        emitAgentMessage(params.statusMessage, 'system');
 
         try {
             const state = fileAgentRecord[params.ProcessId];
@@ -143,13 +140,6 @@ const FetchAndProcessClusteringResultTool = {
             if (!fullResult || !fullResult.topics) {
                 return `Error: get_clustering_result returned no topics for run_id=${params.run_id}`;
             }
-
-            emitLog(
-                `Fetched clustering result: ${fullResult.topics.length} topic(s), ` +
-                `${fullResult.outliers?.length ?? 0} outlier(s)`,
-                'tool_result',
-                'McpClusteringAgent'
-            );
 
             // Run LLM topic naming in-process — result goes to state, not to agent context
             const categorized = await FileClassificationTool.nameTopicsFromMcpResponse(
@@ -193,12 +183,6 @@ const FetchAndProcessClusteringResultTool = {
                     `Folder plan ready: ${summary.length} categorie(s) created for ${params.extension}. ` +
                     `Now call ReportClusteringCompleteTool.`
             };
-
-            emitLog(
-                `FetchAndProcess complete: ${summary.length} categories — ${summary.map(s => `${s.category}(${s.fileCount})`).join(', ')}`,
-                'tool_result',
-                'McpClusteringAgent'
-            );
 
             return JSON.stringify(compactResult);
         } catch (e: any) {
@@ -251,12 +235,7 @@ const ReportClusteringCompleteTool = {
         summary: string;
         statusMessage: string;
     }): Promise<string> {
-        emitLog(
-            `ReportClusteringCompleteTool → ${params.ProcessId} | ${params.extension}`,
-            'tool_call',
-            'McpClusteringAgent'
-        );
-        emitAgentMessage(params.statusMessage);
+        emitAgentMessage(params.statusMessage, 'system');
 
         // Write completion state — the outer loop reads this to exit cleanly
         const key = `${params.ProcessId}_${params.extension.replaceAll('.', '')}`;
@@ -305,12 +284,7 @@ export const McpClusteringAgent = {
         extension: string;
         statusMessage: string;
     }): Promise<string> {
-        emitLog(
-            `McpClusteringAgent → ProcessId=${params.ProcessId} extension=${params.extension}`,
-            'tool_call',
-            'McpClusteringAgent'
-        );
-        emitAgentMessage(params.statusMessage);
+        emitAgentMessage(params.statusMessage, 'system');
 
         const state = fileAgentRecord[params.ProcessId];
         if (!state) return 'Error: Invalid ProcessId.';
@@ -353,9 +327,9 @@ export const McpClusteringAgent = {
                 const response = await session.prompt(
                     `Start the MCP clustering workflow for extension "${params.extension}" ` +
                     `in folder "${state.workspacePath}". ProcessId = ${params.ProcessId}.`,
-                    { functions: subAgentTools, forceToolUse: true }
+                    { functions: subAgentTools, forceToolUse: true },
+                    'MCP Clustering Agent'
                 );
-                emitLog(response, 'info', 'McpClusteringAgent');
 
                 // ErrorEncountered returns __ERROR_ENCOUNTERED__ (__ERROR_ prefix), which
                 // OpenAISession exits on immediately and returns. Propagate to the parent.
@@ -373,11 +347,6 @@ export const McpClusteringAgent = {
                     return;
                 }
 
-                emitLog(
-                    `McpClusteringAgent complete for ${params.extension}: ${status.summary}`,
-                    'tool_result',
-                    'McpClusteringAgent'
-                );
                 resolve(`MCP clustering complete for ${params.extension}. ${status.summary}`);
 
             } catch (e: any) {

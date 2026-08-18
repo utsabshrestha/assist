@@ -80,6 +80,7 @@ async function buildMcpBridgeTools(
 ): Promise<Record<string, any>> {
     let mcpToolList: McpToolDefinition[] = [];
     try {
+        emitAgentMessage(`Getting MCP tools...`, 'system');
         mcpToolList = await mcpClient.listMcpTools();
     } catch (e: any) {
         emitLog(`Failed to list MCP tools for bridge: ${e.message}`, 'error', 'McpImageClusteringAgent');
@@ -132,12 +133,7 @@ const GetImageDescriptionsTool = {
         TaskId: number;
         statusMessage: string;
     }): Promise<string> {
-        emitLog(
-            `GetImageDescriptionsTool → ProcessId=${params.ProcessId} TaskId=${params.TaskId}`,
-            'tool_call',
-            'McpImageClusteringAgent'
-        );
-        emitAgentMessage(params.statusMessage);
+        emitAgentMessage(params.statusMessage, 'system');
 
         try {
             const state = fileAgentRecord[params.ProcessId];
@@ -170,11 +166,6 @@ const GetImageDescriptionsTool = {
                 `Describing ${allImagePaths.length} images...`,
                 'task_update',
                 `img_desc_${params.ProcessId}_${params.TaskId}`
-            );
-            emitLog(
-                `GetImageDescriptionsTool: describing ${allImagePaths.length} images sequentially`,
-                'pipeline',
-                'McpImageClusteringAgent'
             );
 
             const descriptions: ImageDescriptionRecord[] = [];
@@ -254,11 +245,12 @@ const GetImageDescriptionsTool = {
                         description = rawOutput.replace(/<think>[\s\S]*?<\/think>/g, '').trim() || fileName;
                     }
 
-                    emitLog(
-                        `Described ${i + 1}/${allImagePaths.length}: ${fileName} → "${description.substring(0, 80)}..."`,
-                        'tool_result',
-                        'McpImageClusteringAgent'
-                    );
+                    emitLog(JSON.stringify({
+                        imageNo: `${i + 1}/${allImagePaths.length}`,
+                        name: fileName,
+                        description: description
+                    }), 'info', 'Get Image Description Agent');
+
                 } catch (err: any) {
                     emitLog(`Failed to describe ${fileName}: ${err.message}`, 'error', 'McpImageClusteringAgent');
                     // Use filename as fallback so we still have an entry
@@ -276,12 +268,6 @@ const GetImageDescriptionsTool = {
             // Store in-process — never returned to sub-agent
             const storeKey = `${params.ProcessId}_task_${params.TaskId}`;
             imageDescriptionsStore.set(storeKey, descriptions);
-
-            emitLog(
-                `GetImageDescriptionsTool: stored ${descriptions.length} descriptions for key "${storeKey}"`,
-                'tool_result',
-                'McpImageClusteringAgent'
-            );
 
             return JSON.stringify({
                 status: 'ready',
@@ -336,13 +322,7 @@ const EvaluateImageDescriptionClusteringTool = {
         overrides?: Record<string, any>;
         statusMessage: string;
     }): Promise<string> {
-        emitLog(
-            `EvaluateImageDescriptionClusteringTool → ProcessId=${params.ProcessId} TaskId=${params.TaskId} strategy=${params.strategy ?? 'auto'}`,
-            'tool_call',
-            'McpImageClusteringAgent'
-        );
-        emitAgentMessage(params.statusMessage);
-
+        emitAgentMessage(params.statusMessage, 'system');
         try {
             const storeKey = `${params.ProcessId}_task_${params.TaskId}`;
             const descriptions = imageDescriptionsStore.get(storeKey);
@@ -366,11 +346,6 @@ const EvaluateImageDescriptionClusteringTool = {
             };
             if (params.overrides) mcpArgs.overrides = params.overrides;
 
-            emitLog(
-                `Calling evaluate_image_description_clustering: ${descriptions.length} images, strategy=${mcpArgs.strategy}`,
-                'pipeline',
-                'McpImageClusteringAgent'
-            );
 
             const evaluation = await mcpClient.callMcpTool('evaluate_image_description_clustering', mcpArgs);
 
@@ -380,12 +355,6 @@ const EvaluateImageDescriptionClusteringTool = {
                     message: evaluation?.error?.message ?? 'evaluate_image_description_clustering failed.'
                 });
             }
-
-            emitLog(
-                `evaluate_image_description_clustering: rating=${evaluation.evaluation?.rating ?? 'N/A'}, score=${evaluation.evaluation?.score ?? 'N/A'}, run_id=${evaluation.run_id}`,
-                'tool_result',
-                'McpImageClusteringAgent'
-            );
 
             // Return the compact evaluation — safe to pass to sub-agent (no file lists)
             return JSON.stringify(evaluation);
@@ -430,12 +399,7 @@ const FetchAndStoreImageClusteringResultTool = {
         run_id: string;
         statusMessage: string;
     }): Promise<string> {
-        emitLog(
-            `FetchAndStoreImageClusteringResultTool → ProcessId=${params.ProcessId} TaskId=${params.TaskId} run_id=${params.run_id}`,
-            'tool_call',
-            'McpImageClusteringAgent'
-        );
-        emitAgentMessage(params.statusMessage);
+        emitAgentMessage(params.statusMessage, 'system');
 
         try {
             const state = fileAgentRecord[params.ProcessId];
@@ -458,12 +422,6 @@ const FetchAndStoreImageClusteringResultTool = {
                 imageCount: t.document_count
             }));
             const outlierCount = fullResult.outliers?.length ?? 0;
-
-            emitLog(
-                `FetchAndStore: stored ${fullResult.topics.length} topic(s), ${outlierCount} outlier(s) for key "${storeKey}"`,
-                'tool_result',
-                'McpImageClusteringAgent'
-            );
 
             return JSON.stringify({
                 status: 'stored',
@@ -507,12 +465,8 @@ const ProcessImageClusteringResultTool = {
         TaskId: number;
         statusMessage: string;
     }): Promise<string> {
-        emitLog(
-            `ProcessImageClusteringResultTool → ProcessId=${params.ProcessId} TaskId=${params.TaskId}`,
-            'tool_call',
-            'McpImageClusteringAgent'
-        );
-        emitAgentMessage(params.statusMessage);
+
+        emitAgentMessage(params.statusMessage, 'system');
 
         try {
             const state = fileAgentRecord[params.ProcessId];
@@ -532,11 +486,6 @@ const ProcessImageClusteringResultTool = {
             const groupId = `img_process_${params.ProcessId}_${params.TaskId}`;
 
             emitAgentMessage(`Naming ${topics.length} image group(s)...`, 'task_update', groupId);
-            emitLog(
-                `ProcessImageClusteringResultTool: naming ${topics.length} topic(s)`,
-                'pipeline',
-                'McpImageClusteringAgent'
-            );
 
             for (let i = 0; i < topics.length; i++) {
                 const topic = topics[i];
@@ -599,11 +548,6 @@ const ProcessImageClusteringResultTool = {
                 });
 
                 const message: any = response.choices[0]?.message;
-                emitLog(
-                    `Image topic ${topic.topic_id} prompt:\n${prompt}\n\nRaw model output:\n${JSON.stringify(message, null, 2)}`,
-                    'tool_call',
-                    'McpImageClusteringAgent'
-                );
 
                 let folderName = extractTaggedOutput(message);
                 if (!folderName) {
@@ -638,6 +582,17 @@ const ProcessImageClusteringResultTool = {
                     'tool_result',
                     'McpImageClusteringAgent'
                 );
+
+                emitLog(JSON.stringify({
+                    topicId: topic.topic_id,
+                    imageCount: fileNames.length,
+                    keywords: keywordsText,
+                    folderNameSuggested: cleanFolderName,
+                    representativeImages: repLines,
+                    allFilesNote: allFilesNote,
+                    rawResponse: message,
+                    reasoning: reasoningPreview || '(repaired)',
+                }), 'info', 'Image Naming Agent');
 
                 result[cleanFolderName] = (result[cleanFolderName] || []).concat(fileNames);
             }
@@ -688,12 +643,6 @@ const ProcessImageClusteringResultTool = {
             // Clean up in-process stores for this key
             imageDescriptionsStore.delete(storeKey);
             imageClusteringResultStore.delete(storeKey);
-
-            emitLog(
-                `ProcessImageClusteringResultTool complete: ${Object.keys(result).length} categories for Task ${params.TaskId}`,
-                'tool_result',
-                'McpImageClusteringAgent'
-            );
 
             // Compact summary returned to sub-agent
             const summary = Object.entries(result).map(([name, files]) => ({
@@ -747,12 +696,8 @@ const ReportImageClusteringCompleteTool = {
         summary: string;
         statusMessage: string;
     }): Promise<string> {
-        emitLog(
-            `ReportImageClusteringCompleteTool → ProcessId=${params.ProcessId} TaskId=${params.TaskId}`,
-            'tool_call',
-            'McpImageClusteringAgent'
-        );
-        emitAgentMessage(params.statusMessage);
+
+        emitAgentMessage(params.statusMessage, 'system');
 
         const key = `${params.ProcessId}_task_${params.TaskId}`;
         imageClusteringCompletionStatus[key] = { done: true, summary: params.summary };
@@ -790,12 +735,7 @@ export const McpImageClusteringAgent = {
         TaskId: number;
         statusMessage: string;
     }): Promise<string> {
-        emitLog(
-            `McpImageClusteringAgent → ProcessId=${params.ProcessId} TaskId=${params.TaskId}`,
-            'tool_call',
-            'McpImageClusteringAgent'
-        );
-        emitAgentMessage(params.statusMessage);
+        emitAgentMessage(params.statusMessage, 'system');
 
         const state = fileAgentRecord[params.ProcessId];
         if (!state) return 'Error: Invalid ProcessId.';
@@ -839,9 +779,9 @@ export const McpImageClusteringAgent = {
                 const response = await session.prompt(
                     `Start the MCP image clustering workflow for Task ${params.TaskId} ` +
                     `in folder "${state.workspacePath}". ProcessId = ${params.ProcessId}.`,
-                    { functions: subAgentTools, forceToolUse: true }
+                    { functions: subAgentTools, forceToolUse: true },
+                    'MCP Image Clustering Agent'
                 );
-                emitLog(response, 'info', 'McpImageClusteringAgent');
 
                 if (response.includes(ERROR_ENCOUNTERED)) {
                     resolve(`Error: MCP image clustering failed for Task ${params.TaskId}.`);
@@ -853,12 +793,6 @@ export const McpImageClusteringAgent = {
                     resolve(`Error: MCP image clustering sub-agent for Task ${params.TaskId} did not signal completion.`);
                     return;
                 }
-
-                emitLog(
-                    `McpImageClusteringAgent complete for Task ${params.TaskId}: ${status.summary}`,
-                    'tool_result',
-                    'McpImageClusteringAgent'
-                );
                 resolve(`MCP image clustering complete for Task ${params.TaskId}. ${status.summary}`);
 
             } catch (e: any) {

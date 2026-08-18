@@ -52,9 +52,9 @@ export const GetCategoriesOfImages = ({
                 description: "A short, friendly first-person message telling the user what you're about to do, e.g. 'Analyzing your images...'. This will be shown directly to the user."
             }
         },
-        required: [ "ProcessId", "TaskId", "extensions", "statusMessage"]
+        required: ["ProcessId", "TaskId", "extensions", "statusMessage"]
     },
-    async handler(params: {ProcessId: string, TaskId: number, extensions: string[], statusMessage: string}): Promise<string> {
+    async handler(params: { ProcessId: string, TaskId: number, extensions: string[], statusMessage: string }): Promise<string> {
         console.log(`\x1b[95m[Worker Tool]\x1b[0m GetCategoriesOfImages → ${params.ProcessId} for ${params.extensions.join(', ')}`);
         emitAgentMessage(params.statusMessage);
         try {
@@ -132,7 +132,7 @@ export const UpdateCategoryNameTool = ({
         },
         required: ["ProcessId", "extension", "oldCategoryName", "newCategoryName", "statusMessage"]
     },
-    async handler(params: {ProcessId: string, extension: string, oldCategoryName: string, newCategoryName: string, statusMessage: string}): Promise<string> {
+    async handler(params: { ProcessId: string, extension: string, oldCategoryName: string, newCategoryName: string, statusMessage: string }): Promise<string> {
         console.log(`\x1b[95m[Worker Tool]\x1b[0m UpdateCategoryNameTool -> '${params.oldCategoryName}' to '${params.newCategoryName}'`);
         emitAgentMessage(params.statusMessage);
         const state = fileAgentRecord[params.ProcessId];
@@ -177,7 +177,7 @@ export const UpdateCategoryNameTool = ({
 });
 
 export const FinalizeThefolderforthefilesforEachExtensions = ({
-     description: "Finalizes the already-prepared folder plan for this document extension. The plan was already computed automatically — you do not need to build or pass it.",
+    description: "Finalizes the already-prepared folder plan for this document extension. The plan was already computed automatically — you do not need to build or pass it.",
     params: {
         type: "object",
         properties: {
@@ -196,9 +196,9 @@ export const FinalizeThefolderforthefilesforEachExtensions = ({
         },
         required: ["extension", "ProcessId", "statusMessage"]
     },
-    async handler(params: {ProcessId: string, extension: string, statusMessage: string}): Promise<string> {
+    async handler(params: { ProcessId: string, extension: string, statusMessage: string }): Promise<string> {
         console.log(`\x1b[95m[Worker Tool]\x1b[0m FinalizeThefolderforthefilesforEachExtensions → ${params.ProcessId}`);
-        emitAgentMessage(params.statusMessage);
+        emitAgentMessage(params.statusMessage, 'system');
         const state = fileAgentRecord[params.ProcessId];
         if (!state) return "Error: Invalid ProcessId.";
 
@@ -212,15 +212,15 @@ export const FinalizeThefolderforthefilesforEachExtensions = ({
         let updatedCount = 0;
 
         if (!state.fileByExtension[exts])
-                return "The extension you have provided is not available in our memory. Please report to the User.";
+            return "The extension you have provided is not available in our memory. Please report to the User.";
 
         // Iterate through every file of this extension in the global state
         for (const file of state.fileByExtension[exts]) {
             // Find mapping by exact category match, generic default match, or fallback to the first folder provided if no category exists
-            const mapping = folderStructure.find((f: any) => f.category === file.category) 
-                            || folderStructure.find((f: any) => !f.category || f.category.trim() === "")
-                            || (folderStructure.length === 1 ? folderStructure[0] : null);
-            
+            const mapping = folderStructure.find((f: any) => f.category === file.category)
+                || folderStructure.find((f: any) => !f.category || f.category.trim() === "")
+                || (folderStructure.length === 1 ? folderStructure[0] : null);
+
             if (mapping && mapping.folder) {
                 const resolvedTarget = path.resolve(mapping.folder);
                 if (!resolvedTarget.startsWith(path.resolve(state.workspacePath))) {
@@ -248,7 +248,7 @@ export const FinalizeThefolderforthefilesforEachExtensions = ({
 });
 
 export const FinalizeThefolderforImages = ({
-     description: "Finalizes the already-prepared folder plan for this images task. The plan was already computed automatically — you do not need to build or pass it.",
+    description: "Finalizes the already-prepared folder plan for this images task. The plan was already computed automatically — you do not need to build or pass it.",
     params: {
         type: "object",
         properties: {
@@ -267,7 +267,7 @@ export const FinalizeThefolderforImages = ({
         },
         required: ["ProcessId", "TaskId", "statusMessage"]
     },
-    async handler(params: {ProcessId: string, TaskId: number, statusMessage: string}): Promise<string> {
+    async handler(params: { ProcessId: string, TaskId: number, statusMessage: string }): Promise<string> {
         console.log(`\x1b[95m[Worker Tool]\x1b[0m FinalizeThefolderforImages → ${params.ProcessId}`);
         emitAgentMessage(params.statusMessage);
         const state = fileAgentRecord[params.ProcessId];
@@ -289,8 +289,8 @@ export const FinalizeThefolderforImages = ({
             for (const file of state.fileByExtension[ext]) {
                 // Find mapping by exact category match, generic default match, or fallback to the first folder provided if no category exists
                 const mapping = folderStructure.find((f: any) => f.category === file.category)
-                             || folderStructure.find((f: any) => !f.category || f.category.trim() === "")
-                             || (folderStructure.length === 1 ? folderStructure[0] : null);
+                    || folderStructure.find((f: any) => !f.category || f.category.trim() === "")
+                    || (folderStructure.length === 1 ? folderStructure[0] : null);
 
                 if (mapping && mapping.folder) {
                     const resolvedTarget = path.resolve(mapping.folder);
@@ -320,7 +320,7 @@ export const FinalizeThefolderforImages = ({
 });
 
 export const FinalizeThefolderforNonDocuments = ({
-     description: "Finalizes the already-prepared folder plan for this task. The plan was already computed automatically — you do not need to build or pass it.",
+    description: "Finalizes the already-prepared folder plan for this task. The plan was already computed automatically — you do not need to build or pass it.",
     params: {
         type: "object",
         properties: {
@@ -339,7 +339,7 @@ export const FinalizeThefolderforNonDocuments = ({
         },
         required: ["ProcessId", "TaskId", "statusMessage"]
     },
-    async handler(params: {ProcessId: string, TaskId: number, statusMessage: string}): Promise<string> {
+    async handler(params: { ProcessId: string, TaskId: number, statusMessage: string }): Promise<string> {
         console.log(`\x1b[95m[Worker Tool]\x1b[0m FinalizeThefolderforNonDocuments → ${params.ProcessId}`);
         emitAgentMessage(params.statusMessage);
         const state = fileAgentRecord[params.ProcessId];
@@ -353,17 +353,17 @@ export const FinalizeThefolderforNonDocuments = ({
         }
 
         let updatedCount = 0;
-        
+
         for (const ext of extensionsList) {
             if (!state.fileByExtension[ext]) continue;
 
             // Iterate through every file of this extension in the global state
             for (const file of state.fileByExtension[ext]) {
                 // Find mapping by exact category match, generic default match, or fallback to the first folder provided if no category exists
-                const mapping = folderStructure.find((f: any) => f.category === file.category) 
-                             || folderStructure.find((f: any) => !f.category || f.category.trim() === "")
-                             || (folderStructure.length === 1 ? folderStructure[0] : null);
-                
+                const mapping = folderStructure.find((f: any) => f.category === file.category)
+                    || folderStructure.find((f: any) => !f.category || f.category.trim() === "")
+                    || (folderStructure.length === 1 ? folderStructure[0] : null);
+
                 if (mapping && mapping.folder) {
                     const resolvedTarget = path.resolve(mapping.folder);
                     if (!resolvedTarget.startsWith(path.resolve(state.workspacePath))) {
@@ -423,7 +423,7 @@ export const GetCategoriesForNonDocuments = {
             const extensionsList = state.todoList.filter(task => task.id == params.TaskId).flatMap(todo => todo.extensionList);
 
             const categorized = await FileClassificationTool.GetNonDocumentExtensionCategorized(extensionsList);
-            const categoriesList : string[] = [];
+            const categoriesList: string[] = [];
             // Update the category property of the files in the state
             for (const [category, extensions] of Object.entries(categorized)) {
                 categoriesList.push(category);
@@ -469,7 +469,7 @@ export const UpdateCategoryNameForNonDocumentsTool = ({
         },
         required: ["ProcessId", "TaskId", "oldCategoryName", "newCategoryName", "statusMessage"]
     },
-    async handler(params: {ProcessId: string, TaskId: number, oldCategoryName: string, newCategoryName: string, statusMessage: string}): Promise<string> {
+    async handler(params: { ProcessId: string, TaskId: number, oldCategoryName: string, newCategoryName: string, statusMessage: string }): Promise<string> {
         console.log(`\x1b[95m[Worker Tool]\x1b[0m UpdateCategoryNameTool -> '${params.oldCategoryName}' to '${params.newCategoryName}'`);
         emitAgentMessage(params.statusMessage);
         const state = fileAgentRecord[params.ProcessId];
@@ -532,7 +532,7 @@ export const UpdateCategoryNameForImagesTool = ({
         },
         required: ["ProcessId", "TaskId", "oldCategoryName", "newCategoryName", "statusMessage"]
     },
-    async handler(params: {ProcessId: string, TaskId: number, oldCategoryName: string, newCategoryName: string, statusMessage: string}): Promise<string> {
+    async handler(params: { ProcessId: string, TaskId: number, oldCategoryName: string, newCategoryName: string, statusMessage: string }): Promise<string> {
         console.log(`\x1b[95m[Worker Tool]\x1b[0m UpdateCategoryNameForImagesTool -> '${params.oldCategoryName}' to '${params.newCategoryName}'`);
         emitAgentMessage(params.statusMessage);
         const state = fileAgentRecord[params.ProcessId];
@@ -600,7 +600,7 @@ export const PresentDocumentFolderPlanTool = ({
     },
     async handler(params: { ProcessId: string; extension: string; statusMessage: string }): Promise<string> {
         console.log(`\x1b[95m[Worker Tool]\x1b[0m PresentDocumentFolderPlanTool → ${params.ProcessId} / ${params.extension}`);
-        emitAgentMessage(params.statusMessage);
+        emitAgentMessage(params.statusMessage, 'user');
         const state = fileAgentRecord[params.ProcessId];
         if (!state) return "Error: Invalid ProcessId.";
 
@@ -610,7 +610,7 @@ export const PresentDocumentFolderPlanTool = ({
         const response = await requestFolderReview(params.extension, folderPlan);
 
         if (response.action === 'approve') {
-            emitAgentMessage("Got it — finalizing those folders now...");
+            emitAgentMessage("Got it — finalizing those folders now...", 'system');
             return 'USER_APPROVED';
         }
         emitAgentMessage("Got it — let me adjust that...");
@@ -641,7 +641,7 @@ export const PresentImageFolderPlanTool = ({
     },
     async handler(params: { ProcessId: string; TaskId: number; statusMessage: string }): Promise<string> {
         console.log(`\x1b[95m[Worker Tool]\x1b[0m PresentImageFolderPlanTool → ${params.ProcessId} / Task ${params.TaskId}`);
-        emitAgentMessage(params.statusMessage);
+        emitAgentMessage(params.statusMessage, 'user');
         const state = fileAgentRecord[params.ProcessId];
         if (!state) return "Error: Invalid ProcessId.";
 
@@ -650,7 +650,7 @@ export const PresentImageFolderPlanTool = ({
         const response = await requestFolderReview("__images__", folderPlan);
 
         if (response.action === 'approve') {
-            emitAgentMessage("Got it — finalizing those folders now...");
+            emitAgentMessage("Got it — finalizing those folders now...", 'system');
             return 'USER_APPROVED';
         }
         emitAgentMessage("Got it — let me adjust that...");
@@ -681,7 +681,7 @@ export const PresentNonDocumentFolderPlanTool = ({
     },
     async handler(params: { ProcessId: string; TaskId: number; statusMessage: string }): Promise<string> {
         console.log(`\x1b[95m[Worker Tool]\x1b[0m PresentNonDocumentFolderPlanTool → ${params.ProcessId} / Task ${params.TaskId}`);
-        emitAgentMessage(params.statusMessage);
+        emitAgentMessage(params.statusMessage, 'user');
         const state = fileAgentRecord[params.ProcessId];
         if (!state) return "Error: Invalid ProcessId.";
 
@@ -690,7 +690,7 @@ export const PresentNonDocumentFolderPlanTool = ({
         const response = await requestFolderReview("__non_documents__", folderPlan);
 
         if (response.action === 'approve') {
-            emitAgentMessage("Got it — finalizing those folders now...");
+            emitAgentMessage("Got it — finalizing those folders now...", 'system');
             return 'USER_APPROVED';
         }
         emitAgentMessage("Got it — let me adjust that...");

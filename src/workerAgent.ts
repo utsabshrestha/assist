@@ -13,7 +13,7 @@ export class OpenAISession {
         this.messages.push({ role: "system", content: systemPrompt });
     }
 
-    public async prompt(userPrompt: string | OpenAI.Chat.Completions.ChatCompletionContentPart[], options: { functions?: Record<string, any>, forceToolUse?: boolean } = {}): Promise<string> {
+    public async prompt(userPrompt: string | OpenAI.Chat.Completions.ChatCompletionContentPart[], options: { functions?: Record<string, any>, forceToolUse?: boolean } = {}, agent: string = 'Agent Brother'): Promise<string> {
         this.messages.push({ role: "user", content: userPrompt });
 
         let tools: OpenAI.Chat.Completions.ChatCompletionTool[] = [];
@@ -95,12 +95,13 @@ export class OpenAISession {
                     const funcCall = (toolCall as any).function;
                     if (!funcCall) continue;
 
-                    // Log tool calls to the side panel
-                    emitLog(`${funcCall.name}(${funcCall.arguments})`, 'tool_call', funcCall.name);
+                    // Log tool call to side panel — emit as structured JSON so the renderer
+                    // can display it as a collapsible tree and open the full modal
 
                     const funcName = funcCall.name;
                     const args = JSON.parse(funcCall.arguments);
 
+                    emitLog(JSON.stringify({ tool: funcCall.name, args: JSON.parse(funcCall.arguments) }, null, 0), 'tool_call', `${agent} → ${funcName}`);
                     if (options.functions && options.functions[funcName] && options.functions[funcName].handler) {
                         try {
                             const result = await options.functions[funcName].handler(args);
@@ -111,8 +112,12 @@ export class OpenAISession {
                                 content: toolResultContent
                             });
 
-                            // Log tool results to the side panel
-                            emitLog(toolResultContent.slice(0, 500) + (toolResultContent.length > 500 ? '...' : ''), 'tool_result', funcName);
+                            // Log tool result to side panel — emit full result as JSON (no truncation);
+                            // the inline tree caps height and the modal shows everything
+                            const resultJson = typeof result === 'string'
+                                ? (() => { try { return JSON.stringify(JSON.parse(result), null, 0); } catch { return result; } })()
+                                : JSON.stringify(result, null, 0);
+                            emitLog(resultJson, 'tool_result', `${agent} ← ${funcName}`);
 
                             // Pipeline sentinel: a handoff tool signals we should exit this loop
                             if (toolResultContent.startsWith("__HANDOFF_")) {

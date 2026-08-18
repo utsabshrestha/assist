@@ -1,5 +1,5 @@
 import { fileAgentRecord } from '../src/state/fileAgentState.js';
-import { emitLog } from '../electron/ipcBridge.js';
+import { emitAgentMessage, emitLog } from '../electron/ipcBridge.js';
 
 /**
  * Sentinel prefixes detected by OpenAISession.prompt() to break the React loop.
@@ -17,20 +17,23 @@ export const HandOffToCategorizationAgent = ({
             ProcessId: {
                 type: "string",
                 description: "The unique process id for this session."
+            },
+            statusMessage: {
+                type: "string",
+                description: "A short, friendly first-person message telling the user what you're about to do"
             }
         },
-        required: ["ProcessId"]
+        required: ["ProcessId", "statusMessage"]
     },
-    async handler(params: { ProcessId: string }): Promise<string> {
+    async handler(params: { ProcessId: string, statusMessage: string }): Promise<string> {
         const state = fileAgentRecord[params.ProcessId];
         if (!state) return "Error: Invalid ProcessId.";
-
+        emitAgentMessage(params.statusMessage, 'system');
         if (!state.todoList || state.todoList.length === 0) {
             return "Error: Cannot hand off — the todo list is empty. Create a todo list first using CreateTodoListTool.";
         }
 
         state.phase = 'categorization';
-        emitLog('Planning complete. Handing off to Categorization Agent...', 'pipeline');
         return HANDOFF_CATEGORIZATION_SENTINEL;
     }
 });
@@ -58,7 +61,7 @@ export const ErrorEncountered = ({
     async handler(params: { ProcessId: string, Error: string, NameOfAgent: string }): Promise<string> {
         const state = fileAgentRecord[params.ProcessId];
         if (!state) return "Error: Invalid ProcessId.";
-
+        emitAgentMessage(params.Error);
         emitLog('Error Encountered in pipeline', 'error', params.NameOfAgent);
         emitLog(params.Error, 'error', params.NameOfAgent);
         return ERROR_ENCOUNTERED;
@@ -73,14 +76,18 @@ export const HandOffToExecutionAgent = ({
             ProcessId: {
                 type: "string",
                 description: "The unique process id for this session."
+            },
+            statusMessage: {
+                type: "string",
+                description: "A short, friendly first-person message telling the user what you're about to do."
             }
         },
-        required: ["ProcessId"]
+        required: ["ProcessId", "statusMessage"]
     },
-    async handler(params: { ProcessId: string }): Promise<string> {
+    async handler(params: { ProcessId: string, statusMessage: string }): Promise<string> {
         const state = fileAgentRecord[params.ProcessId];
         if (!state) return "Error: Invalid ProcessId.";
-
+        emitAgentMessage(params.statusMessage, 'system');
         const incompleteTasks = state.todoList.filter(
             t => t.status !== 'completed' && t.status !== 'failed'
         );
@@ -90,7 +97,7 @@ export const HandOffToExecutionAgent = ({
         }
 
         state.phase = 'execution';
-        emitLog('Categorization complete. Handing off to Execution Agent...', 'pipeline');
+
         return HANDOFF_EXECUTION_SENTINEL;
     }
 });

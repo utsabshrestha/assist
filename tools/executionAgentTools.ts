@@ -97,13 +97,13 @@ const getFinalPlanConfirmation = ({
         },
         required: ["ProcessId", "statusMessage"]
     },
-    async handler(params: {ProcessId: string, statusMessage: string}): Promise<string> {
+    async handler(params: { ProcessId: string, statusMessage: string }): Promise<string> {
         const state = fileAgentRecord[params.ProcessId];
         if (!state) return "Error: Invalid ProcessId.";
 
         const { scopes, unassignedCount } = buildExecutionPlanRequest(state);
 
-        emitAgentMessage(params.statusMessage);
+        emitAgentMessage(params.statusMessage, 'agent');
 
         // Ask the user for confirmation via the structured, editable execution plan panel
         const response = await requestExecutionPlanConfirmation(scopes, unassignedCount);
@@ -147,9 +147,9 @@ const Executetheprocess = ({
         },
         required: ["ProcessId", "statusMessage"]
     },
-    async handler(params: {ProcessId: string, statusMessage: string}): Promise<string> {
-        emitLog(`Executetheprocess started`, 'tool_call', 'Executetheprocess');
-        emitAgentMessage(params.statusMessage);
+    async handler(params: { ProcessId: string, statusMessage: string }): Promise<string> {
+        // emitLog(`Executetheprocess started`, 'tool_call', 'Executetheprocess');
+        emitAgentMessage(params.statusMessage, 'system');
         const state = fileAgentRecord[params.ProcessId];
         if (!state) return "Error: Invalid ProcessId.";
 
@@ -162,8 +162,8 @@ const Executetheprocess = ({
         const filesToMove: fileStatus[] = [];
 
         // Gather all destinations based on the finalized state
-        for(const file of state.planConfirmedFiles){
-            if(file.fileNewDestination && file.planConfirmed){
+        for (const file of state.planConfirmedFiles) {
+            if (file.fileNewDestination && file.planConfirmed) {
                 foldersToCreate.add(file.fileNewDestination);
                 filesToMove.push(file);
             }
@@ -226,7 +226,7 @@ const Executetheprocess = ({
             summary += `- File Move Errors: 0\n`;
         }
 
-        emitLog(`Execution complete! Folders: ${results.foldersCreated}, Moved: ${results.filesMoved}, Errors: ${results.fileErrors.length}`, 'info', 'Executetheprocess');
+        emitAgentMessage(`Execution complete! Folders: ${results.foldersCreated}, Moved: ${results.filesMoved}, Errors: ${results.fileErrors.length}`, 'task_update');
         return summary;
     }
 });

@@ -68,7 +68,7 @@ export class FileClassificationTool {
         const result: Record<string, string[]> = {};
 
         emitAgentMessage(`Naming ${topics.length} topic group(s) for ${progress.label}...`, 'task_update', progress.groupId);
-        emitLog(`Generating folder names for ${topics.length} MCP topic cluster(s)`, 'pipeline', 'Clustering');
+        emitLog(`Generating folder names for ${topics.length} MCP topic cluster(s)`, 'info', 'Topic Name Suggestion Agent');
 
         const sysprompt = fileCategorizationPrompt;
 
@@ -119,12 +119,16 @@ export class FileClassificationTool {
             });
 
             const message: any = response.choices[0]?.message;
-            emitLog(`Topic ${topic.topic_id} prompt:\n${prompt}\n\nRaw model output:\n${JSON.stringify(message, null, 2)}`, 'tool_call', 'Clustering');
+
 
             let folderName = extractTaggedOutput(message);
             if (!folderName) {
                 const rawText = message?.content || message?.reasoning_content || "";
-                emitLog(`Topic ${topic.topic_id}: no <output> tag found, attempting repair`, 'tool_result', 'Clustering');
+                emitLog(JSON.stringify({
+                    topicId: topic.id,
+                    rawText: rawText,
+                    error: "no <output> tag found, attempting repair"
+                }), 'error', 'Topic Name Suggestion Agent');
                 folderName = await repairTaggedOutput(rawText, llmService) || `Category_${topic.topic_id}`;
             }
 
@@ -138,14 +142,12 @@ export class FileClassificationTool {
                 .replace(/<output>[\s\S]*?<\/output>/i, '')
                 .trim();
 
-            emitLog(
-                `Topic ${topic.topic_id} (${fileNames.length} files) → "${cleanFolderName}"\n` +
-                `Keywords: ${keywordsText}\n` +
-                `Files: ${fileNames.slice(0, 5).join(', ')}${fileNames.length > 5 ? '...' : ''}\n` +
-                `Reasoning: ${reasoningPreview || '(repaired)'}`,
-                'tool_result',
-                'Clustering'
-            );
+            emitLog(JSON.stringify({
+                topicId: topic.id,
+                keyWords: keywordList,
+                files: fileNames,
+                SuggestedFolderName: folderName,
+            }), 'info', 'Topic Name Suggestion Agent');
 
             result[cleanFolderName] = (result[cleanFolderName] || []).concat(fileNames);
         }
@@ -159,12 +161,12 @@ export class FileClassificationTool {
         // Deduplicate similar folder names
         const folderNames = Object.keys(result);
         if (folderNames.length > 1) {
-            emitLog('Checking for similar category names to deduplicate...', 'pipeline', 'Clustering');
+            emitLog('Checking for similar category names to deduplicate...', 'info', 'Topic Name Deduplication Agent');
 
             const merges = await ClassificationUtility.deduplicateCategories(folderNames, llmService);
 
             if (merges.length > 0) {
-                emitLog(`Merged ${merges.length} similar categories`, 'tool_result', 'Clustering');
+                emitLog(`Merged ${merges.length} similar categories`, 'info', 'Topic Name Deduplication Agent');
                 for (const merge of merges) {
                     if (result[merge.source] && result[merge.target] && merge.source !== merge.target) {
                         result[merge.target] = result[merge.target].concat(result[merge.source]);
@@ -269,6 +271,11 @@ export class FileClassificationTool {
             console.error("Failed to parse LLM response JSON:", error);
             // Handle fallback or rethrow depending on your application needs
         }
+
+        emitLog(JSON.stringify({
+            inputExtensions: extensions,
+            output: output,
+        }), 'info', 'Non Document Extension Categorization Agent');
 
         return output;
     }

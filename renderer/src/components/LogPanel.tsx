@@ -34,13 +34,13 @@ interface LogPanelProps {
 }
 
 const FILTERS = [
-  { value: 'tasks',       label: 'Task List' },
-  { value: 'all',         label: 'All'       },
-  { value: 'tool_call',   label: 'Calls'     },
-  { value: 'tool_result', label: 'Results'   },
-  { value: 'pipeline',    label: 'Pipeline'  },
-  { value: 'error',       label: 'Errors'    },
-  { value: 'mcp',         label: 'MCP'       },
+  { value: 'tasks', label: 'Task List' },
+  { value: 'all', label: 'All' },
+  { value: 'tool_call', label: 'Calls' },
+  { value: 'tool_result', label: 'Results' },
+  // { value: 'pipeline',    label: 'Pipeline'  },
+  { value: 'error', label: 'Errors' },
+  { value: 'mcp', label: 'MCP' },
 ];
 
 export const LogPanel: React.FC<LogPanelProps> = ({ logs, todoList, isVisible }) => {
@@ -48,8 +48,8 @@ export const LogPanel: React.FC<LogPanelProps> = ({ logs, todoList, isVisible })
   const { scrollRef, bottomRef, isAtBottom, scrollToBottom } = useSmartScroll([logs, filter]);
 
   const filteredLogs = filter === 'all' ? logs : logs.filter(l => l.type === filter);
-  const errorCount   = logs.filter(l => l.type === 'error').length;
-  const rows         = groupConsecutiveLogs(filteredLogs);
+  const errorCount = logs.filter(l => l.type === 'error').length;
+  const rows = groupConsecutiveLogs(filteredLogs);
 
   return (
     <div className={`log-panel ${isVisible ? 'opacity-100' : 'opacity-0 pointer-events-none'}`}>

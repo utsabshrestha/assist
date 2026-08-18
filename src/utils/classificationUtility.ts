@@ -2,6 +2,7 @@ import { spawn } from 'child_process';
 import * as path from 'path';
 import { dedupCategoryPrompt } from '../prompt/fileAgent.js';
 import { Readable } from 'stream';
+import { emitLog } from '../../electron/ipcBridge.js';
 
 const DEDUP_CHUNK_SIZE = 9;
 
@@ -44,10 +45,10 @@ async function requestMergesForChunk(folderNames: string[], llmService: LlmChatC
 
     const userDedupPrompt = `Review and deduplicate this folder list. Output only the JSON merges object.
 
-Folders:
-${JSON.stringify(folderNames, null, 2)}
+    Folders:
+    ${JSON.stringify(folderNames, null, 2)}
 
-JSON:`;
+    JSON:`;
 
     try {
         const response = await llmService.openai.chat.completions.create({
@@ -70,6 +71,12 @@ JSON:`;
 
         const message: any = response.choices[0]?.message;
         const dedupeResult = message?.content || message?.reasoning_content || "";
+
+        emitLog(JSON.stringify({
+            folderNames: folderNames,
+            dedupResult: dedupeResult,
+        }), 'info', 'Topic Name Deduplication Agent');
+
         return parseDedupeOutput(dedupeResult).merges;
     } catch (e) {
         console.error("Error during category de-duplication:", e);
@@ -125,6 +132,11 @@ export async function repairTaggedOutput(rawText: string, llmService: LlmChatCli
 
         const message: any = response.choices[0]?.message;
         const repaired = extractTaggedOutput(message);
+        emitLog(JSON.stringify({
+            rawText: rawText,
+            repaired: repaired,
+            info: "Successfully repaired the output tag"
+        }), 'info', 'Topic Repairing Agent');
         return repaired || null;
     } catch (e) {
         console.error("Error during folder name repair pass:", e);
@@ -181,10 +193,10 @@ export class ClassificationUtility {
 
         return allMerges;
     }
-    
+
     public static async clusterEmbeddings(
-    embeddings: number[][],
-    texts?: string[]
+        embeddings: number[][],
+        texts?: string[]
     ): Promise<{
         labels: number[];
         representatives: Record<string, number[]>; // cluster_id -> up to 4 member indices, Core -> Edge

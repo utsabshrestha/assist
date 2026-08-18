@@ -61,18 +61,18 @@ const GetFolderSummaryTool = ({
         },
         required: ["path", "ProcessId", "statusMessage"]
     },
-    async handler(params: {ProcessId: string, path: string, statusMessage: string}): Promise<string> {
-        emitLog(`getFolderSummary → ${params.path}`, 'tool_call', 'GetFolderSummaryTool');
-        emitAgentMessage(params.statusMessage);
+    async handler(params: { ProcessId: string, path: string, statusMessage: string }): Promise<string> {
+        // emitLog(`getFolderSummary → ${params.path}`, 'tool_call', 'GetFolderSummaryTool');
+        emitAgentMessage(params.statusMessage, 'agent');
         const state = fileAgentRecord[params.ProcessId];
         if (!state) return "Error: Invalid ProcessId.";
-        
+
         try {
             await fs.access(params.path);
         } catch {
             return `Error: Workspace folder does not exist: '${params.path}'. Folders must be exist to organize the files.`;
         }
-        
+
         try {
             state.workspacePath = params.path;
             const entries = await fs.readdir(state.workspacePath, { withFileTypes: true });
@@ -155,7 +155,13 @@ const GetFolderSummaryTool = ({
 
             const categoryCount = Object.values(categories).filter(list => list.length > 0).length;
             const breakdown = formatCategoryBreakdown(categories, fileCountByExt);
-            return `Folder scanned: ${files.length} files found across ${categoryCount} categories.\n${breakdown}\nCall PresentScopeSelectionTool now to let the user choose what to organize.`;
+            const message = {
+                fileCount: files.length,
+                categories: breakdown,
+                categoryCount: categoryCount,
+                instruction: "Call PresentScopeSelectionTool now to let the user choose what to organize."
+            }
+            return JSON.stringify(message);
         } catch (e: any) {
             return `We have encountered Error reading folder: ${e.message}, please report to the user immediately.`;
         }
@@ -176,8 +182,8 @@ const PresentScopeSelectionTool = ({
         required: ["ProcessId", "statusMessage"]
     },
     async handler(params: { ProcessId: string; statusMessage: string }): Promise<string> {
-        emitLog(`PresentScopeSelectionTool → ${params.ProcessId}`, 'tool_call', 'PresentScopeSelectionTool');
-        emitAgentMessage(params.statusMessage);
+        // emitLog(`PresentScopeSelectionTool → ${params.ProcessId}`, 'tool_call', 'PresentScopeSelectionTool');
+        emitAgentMessage(params.statusMessage, 'user');
         const state = fileAgentRecord[params.ProcessId];
         if (!state) return "Error: Invalid ProcessId.";
 
@@ -189,12 +195,12 @@ const PresentScopeSelectionTool = ({
         );
 
         if (response.action === 'message') {
-            emitAgentMessage("Got it — let me adjust that...");
+            emitAgentMessage("Got it — let me adjust that...", 'system');
             const breakdown = formatCategoryBreakdown(state.categorySummary, state.fileCountByExtension);
             return `USER_MESSAGE: ${response.message ?? 'User declined without a message. Ask what they would like to change.'}\n\nHere is what was found in the folder (category: extension(count)):\n${breakdown}`;
         }
 
-        emitAgentMessage("Got it — building your task list now...");
+        emitAgentMessage("Got it — building your task list now...", 'system');
         const selected = response.selected ?? { documents: [], images: [], "non-documents": [] };
         const tasks = Object.entries(selected)
             .filter(([, extensionList]) => extensionList.length > 0)
@@ -241,9 +247,9 @@ const MemoryScratchpadTool = ({
         },
         required: ["ProcessId", "action", "statusMessage"]
     },
-    async handler(params: {ProcessId: string, action: string, note: string, statusMessage: string}): Promise<string> {
-        emitLog(`MemoryScratchpadTool (Action: ${params.action})`, 'tool_call', 'MemoryScratchpadTool');
-        emitAgentMessage(params.statusMessage);
+    async handler(params: { ProcessId: string, action: string, note: string, statusMessage: string }): Promise<string> {
+        // emitLog(`MemoryScratchpadTool (Action: ${params.action})`, 'tool_call', 'MemoryScratchpadTool');
+        emitAgentMessage(params.statusMessage, 'system');
         const state = fileAgentRecord[params.ProcessId];
         if (!state) return "Error: Invalid ProcessId.";
 
@@ -293,9 +299,9 @@ const CreateTodoListTool = ({
         },
         required: ["ProcessId", "todoList", "statusMessage"]
     },
-    async handler(params: {ProcessId: string, todoList: any, statusMessage: string}): Promise<string> {
-        emitLog(`CreateTodoListTool`, 'tool_call', 'CreateTodoListTool');
-        emitAgentMessage(params.statusMessage);
+    async handler(params: { ProcessId: string, todoList: any, statusMessage: string }): Promise<string> {
+        // emitLog(`CreateTodoListTool`, 'tool_call', 'CreateTodoListTool');
+        emitAgentMessage(params.statusMessage, 'system');
         const state = fileAgentRecord[params.ProcessId];
         if (!state) return "Error: Invalid ProcessId.";
 
@@ -321,9 +327,8 @@ const ViewTodoListTool = ({
         },
         required: ["ProcessId", "statusMessage"]
     },
-    async handler(params: {ProcessId: string, statusMessage: string}): Promise<string> {
-        emitLog(`ViewTodoListTool`, 'tool_call', 'ViewTodoListTool');
-        emitAgentMessage(params.statusMessage);
+    async handler(params: { ProcessId: string, statusMessage: string }): Promise<string> {
+        emitAgentMessage(params.statusMessage, 'agent');
         const state = fileAgentRecord[params.ProcessId];
         if (!state) return "Error: Invalid ProcessId.";
 
@@ -362,9 +367,8 @@ const UpdateTodoListTool = ({
         },
         required: ["ProcessId", "updates", "statusMessage"]
     },
-    async handler(params: {ProcessId: string, updates: { taskId: number, status: string, notes?: string }[], statusMessage: string}): Promise<string> {
-        emitLog(`UpdateTodoListTool (updates: ${params.updates.length})`, 'tool_call', 'UpdateTodoListTool');
-        emitAgentMessage(params.statusMessage);
+    async handler(params: { ProcessId: string, updates: { taskId: number, status: string, notes?: string }[], statusMessage: string }): Promise<string> {
+        emitAgentMessage(params.statusMessage, 'system');
         const state = fileAgentRecord[params.ProcessId];
         if (!state) return "Error: Invalid ProcessId.";
 
