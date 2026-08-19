@@ -167,7 +167,7 @@ class ClusteringService:
         started = time.monotonic()
         request_id = str(uuid.uuid4())
         common = {
-            "status": "completed",
+            "status": "failed" if skipped else "completed",
             "request_id": request_id,
             "input_type": input_type,
             "request": request,
@@ -178,6 +178,7 @@ class ClusteringService:
         if not texts:
             return {
                 **common,
+                "status": "failed",
                 "mode": "empty",
                 "topics": [],
                 "outliers": [],
@@ -206,6 +207,7 @@ class ClusteringService:
             }
             return {
                 **common,
+                "status": "failed",
                 "mode": "small_collection_fallback",
                 "topics": [topic],
                 "outliers": [],
@@ -403,7 +405,7 @@ def compact_evaluation(full: dict):
     )
     noun = "images" if full.get("input_type") == "image_descriptions" else "files"
     return {
-        "status": "completed",
+        "status": full.get("status", "completed"),
         "input_type": full.get("input_type"),
         "mode": full["mode"],
         "dataset": {

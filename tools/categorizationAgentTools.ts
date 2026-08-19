@@ -69,8 +69,10 @@ const DocumentCategorizationAgent = ({
                     subTask.status = 'failed';
                     emitTodoUpdate(state.todoList);
                     emitAgentMessage(`${extension} → failed`, 'task_update', groupId);
+                    emitAgentMessage(`We had an issue while categorizing ${extension} files. We will continue with other task.`)
                 }
-                return `Error encountered during categorizing document of type ${extension}`;
+                // return `Error encountered during categorizing document of type ${extension}`;
+                continue;
             }
             if (subTask) {
                 subTask.status = 'completed';

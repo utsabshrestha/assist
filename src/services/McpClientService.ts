@@ -181,8 +181,33 @@ export class McpClientService {
             }), 'mcp', `McpClientService ← ${toolName}`);
 
             if (parsed?.status === 'error') {
-                const err = parsed.error;
-                throw new Error(`MCP error in '${toolName}': ${err?.code ?? ''} ${err?.message ?? ''}`);
+                const err = parsed.error ?? {};
+                throw new Error(
+                    err?.message ??
+                    err?.code ??
+                    `MCP tool '${toolName}' returned an error.`
+                );
+            }
+
+            if (parsed?.status === 'failed') {
+                const warnings = Array.isArray(parsed.warnings) ? parsed.warnings : [];
+                if (warnings.length > 0) {
+                    const first = warnings[0];
+                    throw new Error(
+                        first?.message ??
+                        first?.code ??
+                        `MCP tool '${toolName}' failed with warnings.`
+                    );
+                }
+
+                const reason = parsed.reason ?? {};
+                if (reason && (reason.code || reason.message)) {
+                    throw new Error(
+                        `${reason.code ?? ''} ${reason.message ?? ''}`.trim()
+                    );
+                }
+
+                throw new Error(`MCP tool '${toolName}' failed with unknown error.`);
             }
 
             // emitLog(`MCP ← ${toolName}: ${rawJson}`, 'mcp', 'MCPClient');
