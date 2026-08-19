@@ -1,12 +1,16 @@
 import { getLlama } from "node-llama-cpp";
 import path from "path";
-
+/**
+ * @deprecated This service is not being used anymore. We have switched to MCP server for embeddings, clustering 
+ * and implementing BerTopic.
+ * Not used Anymore, we have switching to MCP Server
+**/
 export class EmbeddingService {
     private static instance: EmbeddingService | null = null;
     private _context: any = null;
     private _model: any = null;
 
-    private constructor() {}
+    private constructor() { }
 
     public static async getInstance(): Promise<EmbeddingService> {
         if (!EmbeddingService.instance) {
@@ -19,17 +23,17 @@ export class EmbeddingService {
         return EmbeddingService.instance;
     }
 
-  private async init() {
+    private async init() {
         console.log("Loading nomic-embed-text-v1.5.Q6_K.gguf via node-llama-cpp...");
         const llama = await getLlama();
         const modelPath = path.resolve(process.cwd(), "nomic-embed-text-v1.5.Q6_K.gguf");
         this._model = await llama.loadModel({ modelPath });
-        
+
         // Explicitly cap the context size to 4096 tokens
         this._context = await this._model.createEmbeddingContext({
             contextSize: 4096
         });
-        
+
         console.log("Embedding model loaded successfully.");
     }
 
@@ -38,13 +42,13 @@ export class EmbeddingService {
             throw new Error("Embedding context not initialized");
         }
         try {
-            if(text.substring(0, taskPrefix.length) !== taskPrefix) {
+            if (text.substring(0, taskPrefix.length) !== taskPrefix) {
                 text = taskPrefix + text;
             }
             const embedding = await this._context.getEmbeddingFor(text);
             // Convert Float32Array/Float64Array to regular standard array for easy JSON serialization
             const vector = Array.from(embedding.vector) as number[];
-            
+
             // L2-normalize vector
             let sumSq = 0;
             for (let i = 0; i < vector.length; i++) {

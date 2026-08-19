@@ -193,7 +193,11 @@ export class ClassificationUtility {
 
         return allMerges;
     }
-
+    /**
+     * 
+     * @depreciated This function is not used anymore, the embeddings happens in the MCP server which uses BerTopic Algorithm. 
+     * 
+     */
     public static async clusterEmbeddings(
         embeddings: number[][],
         texts?: string[]
