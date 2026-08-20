@@ -158,6 +158,12 @@ export class FileClassificationTool {
             result['Uncategorized'] = (result['Uncategorized'] || []).concat(outlierNames);
         }
 
+        // Handle any skipped_items reported separately by MCP
+        if (mcpResponse.skipped_items && mcpResponse.skipped_items.length > 0) {
+            const skipped_items = mcpResponse.skipped_items.map((f: any) => typeof f === 'string' ? path.basename(f) : f.name || path.basename(f.absolute_path));
+            result['Uncategorized'] = (result['Uncategorized'] || []).concat(skipped_items);
+        }
+
         // Deduplicate similar folder names
         const folderNames = Object.keys(result);
         if (folderNames.length > 1) {

@@ -167,7 +167,7 @@ class ClusteringService:
         started = time.monotonic()
         request_id = str(uuid.uuid4())
         common = {
-            "status": "failed" if skipped else "completed",
+            "status": "completed",
             "request_id": request_id,
             "input_type": input_type,
             "request": request,

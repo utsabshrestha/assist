@@ -1,6 +1,6 @@
 <div align="center">
 
-# 🗂️ File Organization Agent
+# File Organization Agent
 
 ### A Complex Agentic Workflow — Powered by a Small Language Model
 
@@ -17,7 +17,7 @@
 
 ---
 
-## ✨ The Core Idea
+## The Core Idea
 
 In an era dominated by large frontier models, this project asks a different question:
 
@@ -31,7 +31,7 @@ This project is a desktop **AI-powered file organizer** built on this philosophy
 
 ---
 
-## 🏗️ System Architecture
+## System Architecture
 
 ![File Organization Agent Architecture](./FileOrgAgent.png)
 
@@ -39,7 +39,7 @@ The pipeline is a **sequential multi-agent system** with three primary stages an
 
 ---
 
-## 📐 Architecture Overview
+## Architecture Overview
 
 This is a **monorepo** with two distinct applications:
 
@@ -50,7 +50,7 @@ This is a **monorepo** with two distinct applications:
 
 ---
 
-## 🧠 The Agent Pipeline — Three Stages
+## The Agent Pipeline — Three Stages
 
 The top-level orchestrator (`src/agent.ts`) sequences three stages in order. It never calls the LLM itself — it just wires the stages together, detects sentinel signals, and decides whether to proceed or abort.
 
@@ -124,11 +124,11 @@ This agent loops through the todo list in order. For each task it:
 
 ---
 
-## 🔬 The Categorization Sub-Agents
+## The Categorization Sub-Agents
 
 Each sub-agent is a full nested `OpenAISession` with its own system prompt and toolset — a mini-pipeline within the main pipeline.
 
-### 📄 Document Categorization Agent
+### Document Categorization Agent
 
 Handles document extensions (`.pdf`, `.docx`, `.txt`, `.epub`, `.xlsx`, etc.) — **one session per file type**.
 
@@ -155,7 +155,7 @@ ErrorEncountered
 
 ---
 
-### 🖼️ Image Categorization Agent
+### Image Categorization Agent
 
 Handles image files (`.jpg`, `.png`, `.webp`, `.gif`, `.svg`, etc.) — uses **vision + semantic clustering**.
 
@@ -183,7 +183,7 @@ ErrorEncountered
 
 ---
 
-### 📦 Non-Document Categorization Agent
+### Non-Document Categorization Agent
 
 Handles everything else: videos, archives, audio, executables, scripts, etc. — **no BERTopic needed**.
 
@@ -207,11 +207,11 @@ ErrorEncountered
 
 ---
 
-## 🎯 Single-Scope LLM Agents Inside Tool Handlers
+## Single-Scope LLM Agents Inside Tool Handlers
 
 A key innovation of this architecture is that even **tool handlers themselves** contain small, focused LLM calls for atomic subtasks. These are not agentic loops — they are direct `chat.completions.create()` calls with a single, well-defined job.
 
-### 🏷️ Topic Name Suggestion Agent
+### Topic Name Suggestion Agent
 
 **Where:** `fileClassificationTool.ts` → `nameTopicsFromMcpResponse`  
 **When:** After BERTopic returns a clustering result, once per topic cluster.
@@ -224,7 +224,7 @@ A key innovation of this architecture is that even **tool handlers themselves** 
 **Why `<output>` tags instead of JSON schema?**  
 Forcing `json_schema` makes the model commit to an answer token immediately — with no room to think first. For a nuanced naming task (identifying the semantic domain, detecting mixed clusters), the model needs its full reasoning trace. Free-form + `<output>` tags consistently produces better, more descriptive folder names.
 
-### 🔧 Topic Name Repair Agent
+### Topic Name Repair Agent
 
 **Where:** `classificationUtility.ts` → `repairTaggedOutput`  
 **When:** When the Topic Name Suggestion Agent forgets to close its `<output>` tag (a common small-model failure).
@@ -233,7 +233,7 @@ Forcing `json_schema` makes the model commit to an answer token immediately — 
 - Settings: `temperature: 0`, `max_tokens: 60` (extraction only, not reasoning), `repeat_penalty: 1.1`
 - Returns `null` if repair fails; callers fall back to `Category_N`
 
-### 🔀 Topic Name Deduplication Agent
+### Topic Name Deduplication Agent
 
 **Where:** `classificationUtility.ts` → `deduplicateCategories`  
 **When:** After all topics are named, to merge semantically similar categories (e.g., `Tax_Documents` + `Taxes`).
@@ -250,7 +250,7 @@ This runs for **both document and image** categorization after topic naming.
 
 ---
 
-## 🐍 The MCP Server — `file-organizer-mcp`
+## The MCP Server — `file-organizer-mcp`
 
 A standalone **Python FastMCP server** (Streamable HTTP via `uvicorn`) that owns the full semantic clustering pipeline.
 
@@ -286,7 +286,7 @@ Files → Text Extraction → Embedding (nomic-embed-text) → UMAP → HDBSCAN 
 
 ---
 
-## 🔄 Shared State — The Single Source of Truth
+## Shared State — The Single Source of Truth
 
 All agents in the pipeline read from and write to a single `fileAgentState` instance, keyed by `processId` (a UUID) in the global `fileAgentRecord`. This is why agents don't need to pass data through their tool arguments — and why the LLM's context window stays small.
 
@@ -306,7 +306,7 @@ class fileAgentState {
 
 ---
 
-## 🏛️ Architecture Evolution
+## Architecture Evolution
 
 This project went through a significant architectural shift:
 
@@ -318,7 +318,7 @@ The deprecated `EmbeddingService.ts` and `ClassificationUtility.clusterEmbedding
 
 ---
 
-## 📊 Technology Stack
+## Technology Stack
 
 ### Main Application (Node.js + Electron)
 
@@ -356,7 +356,7 @@ The deprecated `EmbeddingService.ts` and `ClassificationUtility.clusterEmbedding
 
 ---
 
-## 📁 Repository Structure
+## Repository Structure
 
 ```
 assist/
@@ -409,7 +409,7 @@ assist/
 
 ---
 
-## 🚀 Getting Started
+## Getting Started
 
 ### Prerequisites
 
@@ -464,7 +464,7 @@ llama-server \
 
 ---
 
-## 🔑 Key Design Principles
+## Key Design Principles
 
 ### 1. Sentinel-Based Stage Handoff
 No cross-stage reasoning by the LLM. Every stage ends with a deterministic sentinel string returned from a tool handler. The `OpenAISession` detects it and propagates it to `FileAgent.chatLoop()`. This eliminates cross-stage hallucination entirely.
@@ -488,7 +488,7 @@ BERTopic runs are not accepted blindly. Each run returns structured concern code
 
 ---
 
-## 🤝 Contributing
+## Contributing
 
 Pull requests are welcome. For major changes, please open an issue first to discuss what you'd like to change.
 
