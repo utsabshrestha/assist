@@ -38,6 +38,11 @@ This project is a desktop **AI-powered file organizer** built on this philosophy
 The pipeline is a **sequential multi-agent system** with three primary stages and three categorization sub-agents, each communicating through a shared state object — not through message passing. Below is the full picture.
 
 ---
+## FileAssist Demo Video
+
+[![FileAssist Demo Video](https://img.youtube.com/vi/txQbEr8bx8Y/maxresdefault.jpg)](https://youtu.be/txQbEr8bx8Y)
+
+---
 
 ## Architecture Overview
 
